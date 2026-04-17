@@ -1,49 +1,39 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
-	"os"
-	"time"
+	"github.com/gabrielvicentm/api-go.git/config"
+	"github.com/gabrielvicentm/api-go.git/internal/handler"
+	"github.com/gabrielvicentm/api-go.git/internal/middleware"
+	"github.com/gabrielvicentm/api-go.git/internal/repository"
+	"github.com/gabrielvicentm/api-go.git/internal/security"
+	"github.com/gabrielvicentm/api-go.git/internal/service"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	port := env("PORT", "8080")
+	config.LoadEnv()
 
-	mux := http.NewServeMux()
+	db := config.NewDBConnection()
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
+	defer db.Close()
 
-		fmt.Fprintf(w, "api-go rodando na porta %s\n", port)
-	})
-
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","time":"%s"}`+"\n", time.Now().Format(time.RFC3339))
-	})
-
-	server := &http.Server{
-		Addr:              ":" + port,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+	tokenManager, err := security.NewTokenManagerFromEnv()
+	if err != nil {
+		panic(err)
 	}
 
-	log.Printf("servidor iniciado na porta %s", port)
+	authRepo := repository.NewAuthRepository(db)
+	authService := service.NewAuthService(authRepo, tokenManager)
+	authMiddleware := middleware.AuthMiddleware(tokenManager)
+	authHandler := handler.NewAuthHandler(authService, authMiddleware)
+	protectedHandler := handler.NewProtectedHandler()
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
-	}
-}
+	r := gin.Default()
 
-func env(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
+	authHandler.RegisterRoutes(r)
+	protectedHandler.RegisterAdminRoutes(r, authMiddleware)
+	protectedHandler.RegisterMotoristaRoutes(r, authMiddleware)
 
-	return fallback
+	r.Run(":8080")
 }

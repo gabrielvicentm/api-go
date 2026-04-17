@@ -1,0 +1,2 @@
+./auth_handler.go
+./protected_handler.go
