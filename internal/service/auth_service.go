@@ -122,6 +122,36 @@ func (s *AuthService) Logout(ctx context.Context, input domain.LogoutRequest) er
 	return s.repo.RevokeRefreshSession(ctx, claims.TokenID)
 }
 
+func (s *AuthService) ChangePassword(ctx context.Context, actorType, actorID string, input domain.ChangePasswordRequest) error {
+	actor, err := s.repo.FindActorByID(ctx, actorType, actorID)
+	if err != nil {
+		return err
+	}
+
+	if !actor.Ativo {
+		return domain.ErrInactiveUser
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(actor.SenhaHash), []byte(input.SenhaAtual)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return domain.ErrInvalidCredentials
+		}
+
+		return err
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(input.NovaSenha), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	if err := s.repo.UpdatePassword(ctx, actorType, actorID, string(newHash)); err != nil {
+		return err
+	}
+
+	return s.repo.RevokeAllRefreshSessions(ctx, actorType, actorID)
+}
+
 func (s *AuthService) GetProfile(ctx context.Context, actorType, actorID string) (*domain.AuthUserResponse, error) {
 	actor, err := s.repo.FindActorByID(ctx, actorType, actorID)
 	if err != nil {

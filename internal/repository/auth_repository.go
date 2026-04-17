@@ -153,6 +153,31 @@ func (r *AuthRepository) UpdateLastAccess(ctx context.Context, actorType, actorI
 	}
 }
 
+func (r *AuthRepository) UpdatePassword(ctx context.Context, actorType, actorID, senhaHash string) error {
+	switch actorType {
+	case domain.ActorTypeAdmin:
+		const query = `
+			UPDATE usuarios
+			SET senha_hash = $2, updated_at = NOW()
+			WHERE id = $1
+		`
+
+		_, err := r.db.Exec(ctx, query, actorID, senhaHash)
+		return err
+	case domain.ActorTypeMotorista:
+		const query = `
+			UPDATE motorista_credenciais
+			SET senha_hash = $2, deve_trocar_senha = FALSE, updated_at = NOW()
+			WHERE motorista_id = $1
+		`
+
+		_, err := r.db.Exec(ctx, query, actorID, senhaHash)
+		return err
+	default:
+		return domain.ErrInvalidToken
+	}
+}
+
 func (r *AuthRepository) CreateRefreshSession(ctx context.Context, session domain.RefreshSession) error {
 	const query = `
 		INSERT INTO auth_refresh_tokens (token_id, actor_id, actor_type, token_hash, expires_at)
@@ -200,6 +225,19 @@ func (r *AuthRepository) RevokeRefreshSession(ctx context.Context, tokenID strin
 	`
 
 	_, err := r.db.Exec(ctx, query, tokenID)
+	return err
+}
+
+func (r *AuthRepository) RevokeAllRefreshSessions(ctx context.Context, actorType, actorID string) error {
+	const query = `
+		UPDATE auth_refresh_tokens
+		SET revoked_at = NOW(), updated_at = NOW()
+		WHERE actor_type = $1
+		  AND actor_id = $2
+		  AND revoked_at IS NULL
+	`
+
+	_, err := r.db.Exec(ctx, query, actorType, actorID)
 	return err
 }
 

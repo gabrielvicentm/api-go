@@ -30,6 +30,11 @@ type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
+type ChangePasswordRequest struct {
+	SenhaAtual string `json:"senha_atual" binding:"required,min=6"`
+	NovaSenha  string `json:"nova_senha" binding:"required,min=6"`
+}
+
 type AuthenticatedActor struct {
 	ID         string
 	Nome       string
@@ -84,9 +89,11 @@ type AuthRepository interface {
 	FindMotoristaByCPF(ctx context.Context, cpf string) (*AuthenticatedActor, error)
 	FindActorByID(ctx context.Context, actorType, actorID string) (*AuthenticatedActor, error)
 	UpdateLastAccess(ctx context.Context, actorType, actorID string) error
+	UpdatePassword(ctx context.Context, actorType, actorID, senhaHash string) error
 	CreateRefreshSession(ctx context.Context, session RefreshSession) error
 	FindRefreshSessionByTokenID(ctx context.Context, tokenID string) (*RefreshSession, error)
 	RevokeRefreshSession(ctx context.Context, tokenID string) error
+	RevokeAllRefreshSessions(ctx context.Context, actorType, actorID string) error
 }
 
 type AuthService interface {
@@ -94,5 +101,6 @@ type AuthService interface {
 	LoginMotorista(ctx context.Context, input MotoristaLoginRequest) (*TokenResponse, error)
 	RefreshToken(ctx context.Context, input RefreshTokenRequest) (*TokenResponse, error)
 	Logout(ctx context.Context, input LogoutRequest) error
+	ChangePassword(ctx context.Context, actorType, actorID string, input ChangePasswordRequest) error
 	GetProfile(ctx context.Context, actorType, actorID string) (*AuthUserResponse, error)
 }

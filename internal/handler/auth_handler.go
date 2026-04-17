@@ -32,6 +32,7 @@ func (h *AuthHandler) RegisterRoutes(router *gin.Engine) {
 	protected := auth.Group("")
 	protected.Use(h.authMiddleware)
 	protected.GET("/me", h.Me)
+	protected.POST("/change-password", h.ChangePassword)
 }
 
 func (h *AuthHandler) LoginAdmin(c *gin.Context) {
@@ -126,6 +127,30 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Usuario autenticado carregado com sucesso",
 		"data":    user,
+	})
+}
+
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	var input domain.ChangePasswordRequest
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados de troca de senha invalidos", err)
+		return
+	}
+
+	if err := h.service.ChangePassword(c.Request.Context(), claims.ActorType, claims.UserID, input); err != nil {
+		h.handleAuthError(c, err, "Erro interno ao trocar senha")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Senha alterada com sucesso",
 	})
 }
 
