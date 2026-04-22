@@ -23,16 +23,25 @@ func main() {
 		panic(err)
 	}
 
+	dataEncryptionKey, err := security.DataEncryptionKeyFromEnv()
+	if err != nil {
+		panic(err)
+	}
+
 	authRepo := repository.NewAuthRepository(db)
+	motoristaRepo := repository.NewMotoristaRepository(db, dataEncryptionKey)
+	veiculoRepo := repository.NewVeiculoRepository(db)
+	clienteRepo := repository.NewClienteRepository(db)
+	tipoCargaRepo := repository.NewTipoCargaRepository(db)
 	authService := service.NewAuthService(authRepo, tokenManager)
 	authMiddleware := middleware.AuthMiddleware(tokenManager)
 	authHandler := handler.NewAuthHandler(authService, authMiddleware)
 	dashboardHandler := handler.NewDashboardHandler()
 	adminUserHandler := handler.NewAdminUserHandler()
-	motoristaHandler := handler.NewMotoristaHandler()
-	veiculoHandler := handler.NewVeiculoHandler()
-	clienteHandler := handler.NewClienteHandler()
-	tipoCargaHandler := handler.NewTipoCargaHandler()
+	motoristaHandler := handler.NewMotoristaHandler(motoristaRepo)
+	veiculoHandler := handler.NewVeiculoHandler(veiculoRepo)
+	clienteHandler := handler.NewClienteHandler(clienteRepo)
+	tipoCargaHandler := handler.NewTipoCargaHandler(tipoCargaRepo)
 	viagemHandler := handler.NewViagemHandler()
 	ocorrenciaHandler := handler.NewOcorrenciaHandler()
 	abastecimentoHandler := handler.NewAbastecimentoHandler()
@@ -41,6 +50,8 @@ func main() {
 	relatorioHandler := handler.NewRelatorioHandler()
 
 	r := gin.Default()
+	r.Use(middleware.CORSMiddleware())
+	r.Static("/uploads", "./uploads")
 
 	authHandler.RegisterRoutes(r)
 
