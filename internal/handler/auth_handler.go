@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gabrielvicentm/api-go.git/internal/domain"
@@ -155,6 +156,8 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 }
 
 func (h *AuthHandler) handleAuthError(c *gin.Context, err error, fallbackMessage string) {
+	log.Printf("auth error on %s %s: %v", c.Request.Method, c.FullPath(), err)
+
 	switch {
 	case errors.Is(err, domain.ErrInvalidCredentials):
 		c.JSON(http.StatusUnauthorized, gin.H{"message": err.Error()})

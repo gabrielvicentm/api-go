@@ -11,7 +11,7 @@ import (
 )
 
 func LoadEnv() {
-	if err := godotenv.Load(".env", "../../.env"); err != nil {
+	if err := godotenv.Load("../../.env"); err != nil {
 
 		log.Fatal("Erro ao carregar .env: ", err)
 
@@ -35,6 +35,10 @@ func NewDBConnection() *pgxpool.Pool {
 	if err != nil {
 		log.Fatal("Erro ao conectar no banco: ", err)
 
+	}
+
+	if err := pool.Ping(context.Background()); err != nil {
+		log.Fatal("Erro ao validar conexao com o banco: ", err)
 	}
 
 	return pool

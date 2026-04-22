@@ -63,10 +63,6 @@ func main() {
 	manutencaoHandler.RegisterAdminRoutes(admin)
 	relatorioHandler.RegisterAdminRoutes(admin)
 
-	superadmin := admin.Group("")
-	superadmin.Use(middleware.RequireRoles("superadmin"))
-	adminUserHandler.RegisterSuperadminRoutes(superadmin)
-
 	motorista := r.Group("/motorista")
 	motorista.Use(
 		authMiddleware,
@@ -79,5 +75,5 @@ func main() {
 	abastecimentoHandler.RegisterMotoristaRoutes(motorista)
 	notificacaoHandler.RegisterMotoristaRoutes(motorista)
 
-	r.Run(":8080")
+	r.Run(":8081")
 }

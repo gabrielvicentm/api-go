@@ -21,9 +21,6 @@ func (h *MotoristaHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 
 func (h *MotoristaHandler) RegisterMotoristaRoutes(group *gin.RouterGroup) {
 	group.GET("/perfil", h.ShowSelf)
-	group.GET("/viagens", h.ListOwnTrips)
-	group.GET("/viagens/atual", h.CurrentTrip)
-	group.GET("/viagens/historico", h.History)
 }
 
 func (h *MotoristaHandler) ListAdmin(c *gin.Context) {
