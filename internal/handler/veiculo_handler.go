@@ -1,11 +1,20 @@
 package handler
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
+	"strings"
 
-type VeiculoHandler struct{}
+	"github.com/gabrielvicentm/api-go.git/internal/domain"
+	"github.com/gabrielvicentm/api-go.git/internal/repository"
+	"github.com/gin-gonic/gin"
+)
 
-func NewVeiculoHandler() *VeiculoHandler {
-	return &VeiculoHandler{}
+type VeiculoHandler struct {
+	repo *repository.VeiculoRepository
+}
+
+func NewVeiculoHandler(repo *repository.VeiculoRepository) *VeiculoHandler {
+	return &VeiculoHandler{repo: repo}
 }
 
 func (h *VeiculoHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
@@ -13,35 +22,107 @@ func (h *VeiculoHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 	group.POST("/veiculos", h.Create)
 	group.GET("/veiculos/:id", h.Show)
 	group.PUT("/veiculos/:id", h.Update)
+	group.DELETE("/veiculos/:id", h.Delete)
 	group.GET("/veiculos/:id/custos", h.Costs)
 	group.GET("/veiculos/:id/consumo", h.Consumption)
 	group.GET("/veiculos/:id/historico", h.History)
 }
 
 func (h *VeiculoHandler) List(c *gin.Context) {
-	respondProtected(c, "admin.veiculos.list", "Listagem protegida de veiculos")
+	page, limit := parsePagination(c)
+
+	items, total, err := h.repo.List(c.Request.Context(), domain.VeiculoListFilter{
+		Search: strings.TrimSpace(c.Query("search")),
+		Status: strings.TrimSpace(c.Query("status")),
+		Tipo:   strings.TrimSpace(c.Query("tipo")),
+		Page:   page,
+		Limit:  limit,
+	})
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao listar veiculos")
+		return
+	}
+
+	respondList(c, "Veiculos listados com sucesso", items, page, limit, total)
 }
 
 func (h *VeiculoHandler) Create(c *gin.Context) {
-	respondProtected(c, "admin.veiculos.create", "Cadastro protegido de veiculos")
+	var input domain.VeiculoCreateRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados de cadastro invalidos", err)
+		return
+	}
+
+	item, err := h.repo.Create(c.Request.Context(), input)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao cadastrar veiculo")
+		return
+	}
+
+	respondSuccess(c, http.StatusCreated, "Veiculo cadastrado com sucesso", item)
 }
 
 func (h *VeiculoHandler) Show(c *gin.Context) {
-	respondProtected(c, "admin.veiculos.read", "Consulta protegida de detalhes do veiculo")
+	item, err := h.repo.GetByID(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao buscar veiculo")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Veiculo carregado com sucesso", item)
 }
 
 func (h *VeiculoHandler) Update(c *gin.Context) {
-	respondProtected(c, "admin.veiculos.update", "Edicao protegida de veiculo")
+	var input domain.VeiculoUpdateRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados de edicao invalidos", err)
+		return
+	}
+
+	item, err := h.repo.Update(c.Request.Context(), c.Param("id"), input)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao atualizar veiculo")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Veiculo atualizado com sucesso", item)
+}
+
+func (h *VeiculoHandler) Delete(c *gin.Context) {
+	if err := h.repo.Delete(c.Request.Context(), c.Param("id")); err != nil {
+		respondDomainError(c, err, "Erro interno ao remover veiculo")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Veiculo removido com sucesso"})
 }
 
 func (h *VeiculoHandler) Costs(c *gin.Context) {
-	respondProtected(c, "admin.veiculos.costs.read", "Leitura protegida de custo total por veiculo")
+	item, err := h.repo.GetCosts(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao buscar custos do veiculo")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Custos do veiculo carregados com sucesso", item)
 }
 
 func (h *VeiculoHandler) Consumption(c *gin.Context) {
-	respondProtected(c, "admin.veiculos.consumption.read", "Leitura protegida de consumo medio por veiculo")
+	item, err := h.repo.GetConsumption(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao buscar consumo do veiculo")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Consumo do veiculo carregado com sucesso", item)
 }
 
 func (h *VeiculoHandler) History(c *gin.Context) {
-	respondProtected(c, "admin.veiculos.history.read", "Leitura protegida do historico completo do veiculo")
+	items, err := h.repo.GetHistory(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao buscar historico do veiculo")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Historico do veiculo carregado com sucesso", items)
 }
