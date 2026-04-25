@@ -1,27 +1,30 @@
 package handler
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"log"
+	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/gabrielvicentm/api-go.git/internal/domain"
 	"github.com/gabrielvicentm/api-go.git/internal/middleware"
 	"github.com/gabrielvicentm/api-go.git/internal/repository"
+	"github.com/gabrielvicentm/api-go.git/internal/service"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type MotoristaHandler struct {
-	repo *repository.MotoristaRepository
+	repo         *repository.MotoristaRepository
+	photoStorage service.PhotoStorage
 }
 
-func NewMotoristaHandler(repo *repository.MotoristaRepository) *MotoristaHandler {
-	return &MotoristaHandler{repo: repo}
+func NewMotoristaHandler(repo *repository.MotoristaRepository, photoStorage service.PhotoStorage) *MotoristaHandler {
+	return &MotoristaHandler{
+		repo:         repo,
+		photoStorage: photoStorage,
+	}
 }
 
 func (h *MotoristaHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
@@ -143,31 +146,37 @@ func (h *MotoristaHandler) UpdateStatus(c *gin.Context) {
 }
 
 func (h *MotoristaHandler) UploadPhoto(c *gin.Context) {
+	if h.photoStorage == nil {
+		respondDomainError(c, fmt.Errorf("photo storage nao configurado"), "Armazenamento de fotos nao configurado")
+		return
+	}
+
 	file, err := c.FormFile("foto")
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "Arquivo de foto obrigatorio", err)
 		return
 	}
 
-	if err := os.MkdirAll("uploads/motoristas", 0o755); err != nil {
-		respondDomainError(c, err, "Erro interno ao preparar armazenamento da foto")
-		return
-	}
-
-	filename, err := randomFilename(filepath.Ext(file.Filename))
+	openedFile, err := file.Open()
 	if err != nil {
-		respondDomainError(c, err, "Erro interno ao gerar nome da foto")
+		respondDomainError(c, err, "Erro interno ao abrir foto do motorista")
+		return
+	}
+	defer openedFile.Close()
+
+	contentType, err := detectImageContentType(openedFile)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "Arquivo enviado nao e uma imagem valida", err)
 		return
 	}
 
-	relativePath := filepath.ToSlash(filepath.Join("motoristas", filename))
-	fullPath := filepath.Join("uploads", relativePath)
-	if err := c.SaveUploadedFile(file, fullPath); err != nil {
-		respondDomainError(c, err, "Erro interno ao salvar foto do motorista")
+	photoURL, err := h.photoStorage.UploadMotoristaPhoto(c.Request.Context(), openedFile, file.Filename, contentType)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao enviar foto do motorista")
 		return
 	}
 
-	item, err := h.repo.UpdatePhoto(c.Request.Context(), c.Param("id"), "/uploads/"+relativePath)
+	item, err := h.repo.UpdatePhoto(c.Request.Context(), c.Param("id"), photoURL)
 	if err != nil {
 		respondDomainError(c, err, "Erro interno ao vincular foto ao motorista")
 		return
@@ -222,17 +231,21 @@ func (h *MotoristaHandler) ShowSelf(c *gin.Context) {
 	respondSuccess(c, http.StatusOK, "Perfil do motorista carregado com sucesso", item)
 }
 
-func randomFilename(ext string) (string, error) {
-	randomBytes := make([]byte, 16)
-	if _, err := rand.Read(randomBytes); err != nil {
-		log.Printf("upload filename error: %v", err)
+func detectImageContentType(file multipart.File) (string, error) {
+	buffer := make([]byte, 512)
+	readBytes, err := file.Read(buffer)
+	if err != nil && err != io.EOF {
 		return "", err
 	}
 
-	normalizedExt := strings.ToLower(strings.TrimSpace(ext))
-	if normalizedExt == "" {
-		normalizedExt = ".bin"
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", err
 	}
 
-	return hex.EncodeToString(randomBytes) + normalizedExt, nil
+	contentType := http.DetectContentType(buffer[:readBytes])
+	if !strings.HasPrefix(contentType, "image/") {
+		return "", domain.ErrInvalidInput
+	}
+
+	return contentType, nil
 }

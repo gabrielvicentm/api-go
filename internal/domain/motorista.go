@@ -65,7 +65,7 @@ type MotoristaListItem struct {
 	Telefone    string     `json:"telefone,omitempty"`
 	Email       string     `json:"email,omitempty"`
 	Status      string     `json:"status"`
-	FotoURL     string     `json:"foto_url,omitempty"`
+	FotoURL     string     `json:"foto_url"`
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 }
 
@@ -87,7 +87,7 @@ type MotoristaDetail struct {
 	EnderecoCEP         string     `json:"endereco_cep,omitempty"`
 	DataAdmissao        string     `json:"data_admissao,omitempty"`
 	Status              string     `json:"status"`
-	FotoURL             string     `json:"foto_url,omitempty"`
+	FotoURL             string     `json:"foto_url"`
 	Observacoes         string     `json:"observacoes,omitempty"`
 	CreatedAt           *time.Time `json:"created_at,omitempty"`
 	UpdatedAt           *time.Time `json:"updated_at,omitempty"`

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/gabrielvicentm/api-go.git/config"
 	"github.com/gabrielvicentm/api-go.git/internal/handler"
 	"github.com/gabrielvicentm/api-go.git/internal/middleware"
@@ -23,6 +25,11 @@ func main() {
 		panic(err)
 	}
 
+	r2Storage, err := service.NewR2StorageFromEnv(context.Background())
+	if err != nil {
+		panic(err)
+	}
+
 	dataEncryptionKey, err := security.DataEncryptionKeyFromEnv()
 	if err != nil {
 		panic(err)
@@ -38,7 +45,7 @@ func main() {
 	authHandler := handler.NewAuthHandler(authService, authMiddleware)
 	dashboardHandler := handler.NewDashboardHandler()
 	adminUserHandler := handler.NewAdminUserHandler()
-	motoristaHandler := handler.NewMotoristaHandler(motoristaRepo)
+	motoristaHandler := handler.NewMotoristaHandler(motoristaRepo, r2Storage)
 	veiculoHandler := handler.NewVeiculoHandler(veiculoRepo)
 	clienteHandler := handler.NewClienteHandler(clienteRepo)
 	tipoCargaHandler := handler.NewTipoCargaHandler(tipoCargaRepo)
