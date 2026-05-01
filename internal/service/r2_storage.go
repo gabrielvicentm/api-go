@@ -22,10 +22,15 @@ type PhotoStorage interface {
 	UploadMotoristaPhoto(ctx context.Context, body io.Reader, originalFilename, contentType string) (string, error)
 }
 
+type ViagemDocumentStorage interface {
+	UploadViagemDocument(ctx context.Context, body io.Reader, viagemID, originalFilename, contentType string) (string, error)
+}
+
 type R2Storage struct {
 	bucketName    string
 	publicBaseURL string
 	motoristasKey string
+	viagensKey    string
 	uploader      *manager.Uploader
 }
 
@@ -38,6 +43,7 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 	endpoint := strings.TrimSpace(os.Getenv("R2_ENDPOINT"))
 	publicBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("R2_PUBLIC_BASE_URL")), "/")
 	motoristasPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_MOTORISTAS_PREFIX")), "/")
+	viagensPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_VIAGENS_DOCUMENTOS_PREFIX")), "/")
 
 	switch {
 	case accessKeyID == "":
@@ -65,6 +71,9 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 	if motoristasPrefix == "" {
 		motoristasPrefix = "motoristas"
 	}
+	if viagensPrefix == "" {
+		viagensPrefix = "viagens/documentos"
+	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(
 		ctx,
@@ -86,6 +95,7 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 		bucketName:    bucketName,
 		publicBaseURL: publicBaseURL,
 		motoristasKey: motoristasPrefix,
+		viagensKey:    viagensPrefix,
 		uploader:      manager.NewUploader(client),
 	}, nil
 }
@@ -102,6 +112,32 @@ func (s *R2Storage) UploadMotoristaPhoto(ctx context.Context, body io.Reader, or
 	}
 
 	key := strings.Trim(strings.Join([]string{s.motoristasKey, filename}, "/"), "/")
+	input := &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucketName),
+		Key:         aws.String(key),
+		Body:        body,
+		ContentType: aws.String(contentType),
+	}
+
+	if _, err := s.uploader.Upload(ctx, input); err != nil {
+		return "", err
+	}
+
+	return s.publicObjectURL(key), nil
+}
+
+func (s *R2Storage) UploadViagemDocument(ctx context.Context, body io.Reader, viagemID, originalFilename, contentType string) (string, error) {
+	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(originalFilename)))
+	if ext == "" {
+		ext = ".bin"
+	}
+
+	filename, err := randomFilename(ext)
+	if err != nil {
+		return "", err
+	}
+
+	key := strings.Trim(strings.Join([]string{s.viagensKey, strings.TrimSpace(viagemID), filename}, "/"), "/")
 	input := &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucketName),
 		Key:         aws.String(key),
