@@ -40,7 +40,12 @@ func main() {
 	veiculoRepo := repository.NewVeiculoRepository(db)
 	clienteRepo := repository.NewClienteRepository(db)
 	tipoCargaRepo := repository.NewTipoCargaRepository(db)
+<<<<<<< HEAD
 	manutencaoRepo := repository.NewManutencaoRepository(db)
+=======
+	viagemRepo := repository.NewViagemRepository(db)
+	viagemService := service.NewViagemService(viagemRepo, r2Storage)
+>>>>>>> b2df43310ad46be13b75643acdcb9f4967961b73
 	authService := service.NewAuthService(authRepo, tokenManager)
 	authMiddleware := middleware.AuthMiddleware(tokenManager)
 	authHandler := handler.NewAuthHandler(authService, authMiddleware)
@@ -50,7 +55,7 @@ func main() {
 	veiculoHandler := handler.NewVeiculoHandler(veiculoRepo)
 	clienteHandler := handler.NewClienteHandler(clienteRepo)
 	tipoCargaHandler := handler.NewTipoCargaHandler(tipoCargaRepo)
-	viagemHandler := handler.NewViagemHandler()
+	viagemHandler := handler.NewViagemHandler(viagemRepo, viagemService)
 	ocorrenciaHandler := handler.NewOcorrenciaHandler()
 	abastecimentoHandler := handler.NewAbastecimentoHandler()
 	notificacaoHandler := handler.NewNotificacaoHandler()
@@ -94,5 +99,5 @@ func main() {
 	abastecimentoHandler.RegisterMotoristaRoutes(motorista)
 	notificacaoHandler.RegisterMotoristaRoutes(motorista)
 
-	r.Run(":8081")
+	r.Run(":8080")
 }
