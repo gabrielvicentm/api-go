@@ -40,6 +40,7 @@ func main() {
 	veiculoRepo := repository.NewVeiculoRepository(db)
 	clienteRepo := repository.NewClienteRepository(db)
 	tipoCargaRepo := repository.NewTipoCargaRepository(db)
+	manutencaoRepo := repository.NewManutencaoRepository(db)
 	authService := service.NewAuthService(authRepo, tokenManager)
 	authMiddleware := middleware.AuthMiddleware(tokenManager)
 	authHandler := handler.NewAuthHandler(authService, authMiddleware)
@@ -53,7 +54,7 @@ func main() {
 	ocorrenciaHandler := handler.NewOcorrenciaHandler()
 	abastecimentoHandler := handler.NewAbastecimentoHandler()
 	notificacaoHandler := handler.NewNotificacaoHandler()
-	manutencaoHandler := handler.NewManutencaoHandler()
+	manutencaoHandler := handler.NewManutencaoHandler(manutencaoRepo)
 	relatorioHandler := handler.NewRelatorioHandler()
 
 	r := gin.Default()
