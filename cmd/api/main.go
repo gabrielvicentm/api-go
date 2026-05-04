@@ -95,5 +95,5 @@ func main() {
 	abastecimentoHandler.RegisterMotoristaRoutes(motorista)
 	notificacaoHandler.RegisterMotoristaRoutes(motorista)
 
-	r.Run(":8081")
+	r.Run(":8080")
 }
