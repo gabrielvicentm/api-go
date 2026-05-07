@@ -56,8 +56,12 @@ type ViagemUpdateRequest struct {
 type ViagemDetail struct {
 	ID                  string     `json:"id"`
 	MotoristaID         string     `json:"motorista_id"`
+	MotoristaNome       string     `json:"motorista_nome,omitempty"`
 	VeiculoID           string     `json:"veiculo_id"`
+	VeiculoPlaca        string     `json:"veiculo_placa,omitempty"`
+	VeiculoModelo       string     `json:"veiculo_modelo,omitempty"`
 	ClienteID           string     `json:"cliente_id,omitempty"`
+	ClienteNome         string     `json:"cliente_nome,omitempty"`
 	OrigemCidade        string     `json:"origem_cidade"`
 	OrigemUF            string     `json:"origem_uf"`
 	DestinoCidade       string     `json:"destino_cidade"`
@@ -67,6 +71,7 @@ type ViagemDetail struct {
 	DataChegadaReal     *time.Time `json:"data_chegada_real,omitempty"`
 	DistanciaKM         string     `json:"distancia_km,omitempty"`
 	TipoCargaID         string     `json:"tipo_carga_id,omitempty"`
+	TipoCargaNome       string     `json:"tipo_carga_nome,omitempty"`
 	PesoCargaKG         string     `json:"peso_carga_kg,omitempty"`
 	ValorFrete          string     `json:"valor_frete,omitempty"`
 	KMInicial           string     `json:"km_inicial"`

@@ -24,20 +24,29 @@ func NewViagemRepository(db *pgxpool.Pool) *ViagemRepository {
 func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFilter) ([]domain.ViagemDetail, int64, error) {
 	const countQuery = `
 		SELECT COUNT(*)
-		FROM viagens
+		FROM viagens v
+		JOIN motoristas m ON m.id = v.motorista_id
+		JOIN veiculos ve ON ve.id = v.veiculo_id
+		LEFT JOIN clientes c ON c.id = v.cliente_id
+		LEFT JOIN tipos_carga tc ON tc.id = v.tipo_carga_id
 		WHERE (
 			$1 = ''
-			OR origem_cidade ILIKE '%' || $1 || '%'
-			OR destino_cidade ILIKE '%' || $1 || '%'
-			OR origem_uf ILIKE '%' || $1 || '%'
-			OR destino_uf ILIKE '%' || $1 || '%'
+			OR v.origem_cidade ILIKE '%' || $1 || '%'
+			OR v.destino_cidade ILIKE '%' || $1 || '%'
+			OR v.origem_uf ILIKE '%' || $1 || '%'
+			OR v.destino_uf ILIKE '%' || $1 || '%'
+			OR m.nome ILIKE '%' || $1 || '%'
+			OR ve.placa ILIKE '%' || $1 || '%'
+			OR ve.modelo ILIKE '%' || $1 || '%'
+			OR COALESCE(c.nome, '') ILIKE '%' || $1 || '%'
+			OR COALESCE(tc.nome, '') ILIKE '%' || $1 || '%'
 		)
-		AND ($2 = '' OR status::text = $2)
-		AND ($3 = '' OR motorista_id::text = $3)
-		AND ($4 = '' OR veiculo_id::text = $4)
-		AND ($5 = '' OR COALESCE(cliente_id::text, '') = $5)
-		AND ($6 = '' OR data_saida >= $6::timestamptz)
-		AND ($7 = '' OR data_saida <= $7::timestamptz)
+		AND ($2 = '' OR v.status::text = $2)
+		AND ($3 = '' OR v.motorista_id::text = $3)
+		AND ($4 = '' OR v.veiculo_id::text = $4)
+		AND ($5 = '' OR COALESCE(v.cliente_id::text, '') = $5)
+		AND ($6 = '' OR v.data_saida >= $6::timestamptz)
+		AND ($7 = '' OR v.data_saida <= $7::timestamptz)
 	`
 
 	var total int64
@@ -57,42 +66,56 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 
 	const query = `
 		SELECT
-			id,
-			motorista_id,
-			veiculo_id,
-			COALESCE(cliente_id::text, ''),
-			origem_cidade,
-			origem_uf,
-			destino_cidade,
-			destino_uf,
-			data_saida,
-			data_chegada_prevista,
-			data_chegada_real,
-			COALESCE(distancia_km::text, ''),
-			COALESCE(tipo_carga_id::text, ''),
-			COALESCE(peso_carga_kg::text, ''),
-			COALESCE(valor_frete::text, ''),
-			km_inicial::text,
-			COALESCE(km_final::text, ''),
-			status::text,
-			COALESCE(observacoes, ''),
-			created_at,
-			updated_at
-		FROM viagens
+			v.id,
+			v.motorista_id,
+			COALESCE(m.nome, ''),
+			v.veiculo_id,
+			COALESCE(ve.placa, ''),
+			COALESCE(ve.modelo, ''),
+			COALESCE(v.cliente_id::text, ''),
+			COALESCE(c.nome, ''),
+			v.origem_cidade,
+			v.origem_uf,
+			v.destino_cidade,
+			v.destino_uf,
+			v.data_saida,
+			v.data_chegada_prevista,
+			v.data_chegada_real,
+			COALESCE(v.distancia_km::text, ''),
+			COALESCE(v.tipo_carga_id::text, ''),
+			COALESCE(tc.nome, ''),
+			COALESCE(v.peso_carga_kg::text, ''),
+			COALESCE(v.valor_frete::text, ''),
+			v.km_inicial::text,
+			COALESCE(v.km_final::text, ''),
+			v.status::text,
+			COALESCE(v.observacoes, ''),
+			v.created_at,
+			v.updated_at
+		FROM viagens v
+		JOIN motoristas m ON m.id = v.motorista_id
+		JOIN veiculos ve ON ve.id = v.veiculo_id
+		LEFT JOIN clientes c ON c.id = v.cliente_id
+		LEFT JOIN tipos_carga tc ON tc.id = v.tipo_carga_id
 		WHERE (
 			$1 = ''
-			OR origem_cidade ILIKE '%' || $1 || '%'
-			OR destino_cidade ILIKE '%' || $1 || '%'
-			OR origem_uf ILIKE '%' || $1 || '%'
-			OR destino_uf ILIKE '%' || $1 || '%'
+			OR v.origem_cidade ILIKE '%' || $1 || '%'
+			OR v.destino_cidade ILIKE '%' || $1 || '%'
+			OR v.origem_uf ILIKE '%' || $1 || '%'
+			OR v.destino_uf ILIKE '%' || $1 || '%'
+			OR m.nome ILIKE '%' || $1 || '%'
+			OR ve.placa ILIKE '%' || $1 || '%'
+			OR ve.modelo ILIKE '%' || $1 || '%'
+			OR COALESCE(c.nome, '') ILIKE '%' || $1 || '%'
+			OR COALESCE(tc.nome, '') ILIKE '%' || $1 || '%'
 		)
-		AND ($2 = '' OR status::text = $2)
-		AND ($3 = '' OR motorista_id::text = $3)
-		AND ($4 = '' OR veiculo_id::text = $4)
-		AND ($5 = '' OR COALESCE(cliente_id::text, '') = $5)
-		AND ($6 = '' OR data_saida >= $6::timestamptz)
-		AND ($7 = '' OR data_saida <= $7::timestamptz)
-		ORDER BY data_saida DESC
+		AND ($2 = '' OR v.status::text = $2)
+		AND ($3 = '' OR v.motorista_id::text = $3)
+		AND ($4 = '' OR v.veiculo_id::text = $4)
+		AND ($5 = '' OR COALESCE(v.cliente_id::text, '') = $5)
+		AND ($6 = '' OR v.data_saida >= $6::timestamptz)
+		AND ($7 = '' OR v.data_saida <= $7::timestamptz)
+		ORDER BY v.data_saida DESC
 		LIMIT $8 OFFSET $9
 	`
 
@@ -120,8 +143,12 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 		if err := rows.Scan(
 			&item.ID,
 			&item.MotoristaID,
+			&item.MotoristaNome,
 			&item.VeiculoID,
+			&item.VeiculoPlaca,
+			&item.VeiculoModelo,
 			&item.ClienteID,
+			&item.ClienteNome,
 			&item.OrigemCidade,
 			&item.OrigemUF,
 			&item.DestinoCidade,
@@ -131,6 +158,7 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 			&item.DataChegadaReal,
 			&item.DistanciaKM,
 			&item.TipoCargaID,
+			&item.TipoCargaNome,
 			&item.PesoCargaKG,
 			&item.ValorFrete,
 			&item.KMInicial,
