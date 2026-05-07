@@ -57,8 +57,16 @@ func (s *ViagemService) Update(ctx context.Context, id string, input domain.Viag
 		return nil, err
 	}
 
+	if err := validateViagemStatus(input.Status); err != nil {
+		return nil, err
+	}
 	if err := s.repo.EnsureMotoristaAtivo(ctx, input.MotoristaID); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(input.VeiculoID) != before.VeiculoID {
+		if err := s.repo.EnsureVeiculoDisponivel(ctx, input.VeiculoID); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.repo.ValidateKMInicial(ctx, input.VeiculoID, input.KMInicial); err != nil {
 		return nil, err
@@ -77,13 +85,27 @@ func (s *ViagemService) Update(ctx context.Context, id string, input domain.Viag
 			CampoAlterado: change.Field,
 			ValorAnterior: change.Before,
 			ValorNovo:     change.After,
-			Descricao:     "Campo atualizado",
+			Descricao:     describeViagemChange(change),
 		}); err != nil {
 			return nil, err
 		}
 	}
 
 	return updated, nil
+}
+
+func validateViagemStatus(status string) error {
+	status = strings.TrimSpace(strings.ToLower(status))
+	if status == "" {
+		return nil
+	}
+
+	switch status {
+	case "pendente", "em_andamento", "concluida", "cancelada":
+		return nil
+	default:
+		return fmt.Errorf("status de viagem invalido: %w", domain.ErrInvalidInput)
+	}
 }
 
 func (s *ViagemService) UploadDocument(ctx context.Context, viagemID string, body io.Reader, filename, documentType, contentType string, size int64, actorType, actorID string) (*domain.ViagemDocumentoItem, error) {
@@ -127,6 +149,53 @@ type viagemChange struct {
 	Field  string
 	Before string
 	After  string
+}
+
+func describeViagemChange(change viagemChange) string {
+	return fmt.Sprintf(
+		"%s alterado de %q para %q",
+		viagemFieldLabel(change.Field),
+		formatHistoryValue(change.Before),
+		formatHistoryValue(change.After),
+	)
+}
+
+func viagemFieldLabel(field string) string {
+	labels := map[string]string{
+		"motorista_id":          "Motorista",
+		"veiculo_id":            "Veiculo",
+		"cliente_id":            "Cliente",
+		"origem_cidade":         "Cidade de origem",
+		"origem_uf":             "UF de origem",
+		"destino_cidade":        "Cidade de destino",
+		"destino_uf":            "UF de destino",
+		"data_saida":            "Data de saida",
+		"data_chegada_prevista": "Data de chegada prevista",
+		"data_chegada_real":     "Data de chegada real",
+		"distancia_km":          "Distancia em KM",
+		"tipo_carga_id":         "Tipo de carga",
+		"peso_carga_kg":         "Peso da carga",
+		"valor_frete":           "Valor do frete",
+		"km_inicial":            "KM inicial",
+		"km_final":              "KM final",
+		"status":                "Status",
+		"observacoes":           "Observacoes",
+	}
+
+	if label, ok := labels[field]; ok {
+		return label
+	}
+
+	return field
+}
+
+func formatHistoryValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "vazio"
+	}
+
+	return value
 }
 
 func collectViagemChanges(before, after *domain.ViagemDetail) []viagemChange {

@@ -179,29 +179,38 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 func (r *ViagemRepository) GetByID(ctx context.Context, id string) (*domain.ViagemDetail, error) {
 	const query = `
 		SELECT
-			id,
-			motorista_id,
-			veiculo_id,
-			COALESCE(cliente_id::text, ''),
-			origem_cidade,
-			origem_uf,
-			destino_cidade,
-			destino_uf,
-			data_saida,
-			data_chegada_prevista,
-			data_chegada_real,
-			COALESCE(distancia_km::text, ''),
-			COALESCE(tipo_carga_id::text, ''),
-			COALESCE(peso_carga_kg::text, ''),
-			COALESCE(valor_frete::text, ''),
-			km_inicial::text,
-			COALESCE(km_final::text, ''),
-			status::text,
-			COALESCE(observacoes, ''),
-			created_at,
-			updated_at
-		FROM viagens
-		WHERE id = $1
+			v.id,
+			v.motorista_id,
+			COALESCE(m.nome, ''),
+			v.veiculo_id,
+			COALESCE(ve.placa, ''),
+			COALESCE(ve.modelo, ''),
+			COALESCE(v.cliente_id::text, ''),
+			COALESCE(c.nome, ''),
+			v.origem_cidade,
+			v.origem_uf,
+			v.destino_cidade,
+			v.destino_uf,
+			v.data_saida,
+			v.data_chegada_prevista,
+			v.data_chegada_real,
+			COALESCE(v.distancia_km::text, ''),
+			COALESCE(v.tipo_carga_id::text, ''),
+			COALESCE(tc.nome, ''),
+			COALESCE(v.peso_carga_kg::text, ''),
+			COALESCE(v.valor_frete::text, ''),
+			v.km_inicial::text,
+			COALESCE(v.km_final::text, ''),
+			v.status::text,
+			COALESCE(v.observacoes, ''),
+			v.created_at,
+			v.updated_at
+		FROM viagens v
+		JOIN motoristas m ON m.id = v.motorista_id
+		JOIN veiculos ve ON ve.id = v.veiculo_id
+		LEFT JOIN clientes c ON c.id = v.cliente_id
+		LEFT JOIN tipos_carga tc ON tc.id = v.tipo_carga_id
+		WHERE v.id = $1
 		LIMIT 1
 	`
 
@@ -209,8 +218,12 @@ func (r *ViagemRepository) GetByID(ctx context.Context, id string) (*domain.Viag
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&item.ID,
 		&item.MotoristaID,
+		&item.MotoristaNome,
 		&item.VeiculoID,
+		&item.VeiculoPlaca,
+		&item.VeiculoModelo,
 		&item.ClienteID,
+		&item.ClienteNome,
 		&item.OrigemCidade,
 		&item.OrigemUF,
 		&item.DestinoCidade,
@@ -220,6 +233,7 @@ func (r *ViagemRepository) GetByID(ctx context.Context, id string) (*domain.Viag
 		&item.DataChegadaReal,
 		&item.DistanciaKM,
 		&item.TipoCargaID,
+		&item.TipoCargaNome,
 		&item.PesoCargaKG,
 		&item.ValorFrete,
 		&item.KMInicial,
@@ -615,7 +629,7 @@ func (r *ViagemRepository) Update(ctx context.Context, id string, input domain.V
 		strings.TrimSpace(input.ValorFrete),
 		strings.TrimSpace(input.KMInicial),
 		strings.TrimSpace(input.KMFinal),
-		strings.TrimSpace(input.Status),
+		strings.ToLower(strings.TrimSpace(input.Status)),
 		strings.TrimSpace(input.Observacoes),
 	)
 	if err != nil {
