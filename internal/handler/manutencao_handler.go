@@ -1,11 +1,20 @@
 package handler
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
+	"strings"
 
-type ManutencaoHandler struct{}
+	"github.com/gabrielvicentm/api-go.git/internal/domain"
+	"github.com/gabrielvicentm/api-go.git/internal/repository"
+	"github.com/gin-gonic/gin"
+)
 
-func NewManutencaoHandler() *ManutencaoHandler {
-	return &ManutencaoHandler{}
+type ManutencaoHandler struct {
+	repo *repository.ManutencaoRepository
+}
+
+func NewManutencaoHandler(repo *repository.ManutencaoRepository) *ManutencaoHandler {
+	return &ManutencaoHandler{repo: repo}
 }
 
 func (h *ManutencaoHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
@@ -17,21 +26,78 @@ func (h *ManutencaoHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 }
 
 func (h *ManutencaoHandler) List(c *gin.Context) {
-	respondProtected(c, "admin.manutencoes.list", "Listagem protegida de manutencoes")
+	page, limit := parsePagination(c)
+
+	items, total, err := h.repo.List(c.Request.Context(), domain.ManutencaoListFilter{
+		Search:    strings.TrimSpace(c.Query("search")),
+		Status:    strings.TrimSpace(c.Query("status")),
+		Tipo:      strings.TrimSpace(c.Query("tipo")),
+		VeiculoID: strings.TrimSpace(c.Query("veiculo_id")),
+		Page:      page,
+		Limit:     limit,
+	})
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao listar manutencoes")
+		return
+	}
+
+	respondList(c, "Manutencoes listadas com sucesso", items, page, limit, total)
 }
 
 func (h *ManutencaoHandler) Create(c *gin.Context) {
-	respondProtected(c, "admin.manutencoes.create", "Cadastro protegido de manutencao")
+	var input domain.ManutencaoCreateRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados de cadastro invalidos", err)
+		return
+	}
+
+	item, err := h.repo.Create(c.Request.Context(), input)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao cadastrar manutencao")
+		return
+	}
+
+	respondSuccess(c, http.StatusCreated, "Manutencao cadastrada com sucesso", item)
 }
 
 func (h *ManutencaoHandler) Show(c *gin.Context) {
-	respondProtected(c, "admin.manutencoes.read", "Consulta protegida de manutencao")
+	item, err := h.repo.GetByID(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao buscar manutencao")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Manutencao carregada com sucesso", item)
 }
 
 func (h *ManutencaoHandler) Update(c *gin.Context) {
-	respondProtected(c, "admin.manutencoes.update", "Edicao protegida de manutencao")
+	var input domain.ManutencaoUpdateRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados de edicao invalidos", err)
+		return
+	}
+
+	item, err := h.repo.Update(c.Request.Context(), c.Param("id"), input)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao atualizar manutencao")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Manutencao atualizada com sucesso", item)
 }
 
 func (h *ManutencaoHandler) ListByVehicle(c *gin.Context) {
-	respondProtected(c, "admin.veiculos.manutencoes.list", "Historico protegido de manutencoes por veiculo")
+	page, limit := parsePagination(c)
+
+	items, total, err := h.repo.List(c.Request.Context(), domain.ManutencaoListFilter{
+		VeiculoID: c.Param("id"),
+		Page:      page,
+		Limit:     limit,
+	})
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao listar manutencoes do veiculo")
+		return
+	}
+
+	respondList(c, "Manutencoes do veiculo listadas com sucesso", items, page, limit, total)
 }
