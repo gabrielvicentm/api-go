@@ -17,6 +17,10 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TYPE status_viagem     AS ENUM ('pendente', 'em_andamento', 'concluida', 'cancelada');
 CREATE TYPE status_veiculo    AS ENUM ('disponivel', 'em_uso', 'manutencao', 'inativo');
 CREATE TYPE status_motorista  AS ENUM ('ativo', 'inativo', 'ferias', 'afastado');
+CREATE TYPE status_funcionario AS ENUM ('ativo', 'inativo', 'ferias', 'afastado', 'desligado');
+CREATE TYPE tipo_contrato_funcionario AS ENUM ('clt', 'pj', 'temporario', 'estagio', 'aprendiz', 'terceirizado', 'outro');
+CREATE TYPE tipo_pagamento_funcionario AS ENUM ('mensal', 'quinzenal', 'semanal', 'diario', 'hora');
+CREATE TYPE tipo_conta_bancaria_funcionario AS ENUM ('corrente', 'poupanca', 'salario', 'pix');
 CREATE TYPE tipo_ocorrencia   AS ENUM (
     'acidente', 'multa', 'pane_mecanica', 'pane_eletrica',
     'furto', 'avaria_carga', 'atraso', 'outro'
@@ -32,40 +36,85 @@ CREATE TYPE tipo_cnh          AS ENUM ('A', 'B', 'C', 'D', 'E', 'AB', 'AC', 'AD'
 CREATE TYPE status_finalizacao AS ENUM ('pendente', 'aprovada', 'rejeitada');
 
 -- ============================================================
---  MOTORISTAS
+--  FUNCIONÁRIOS
 -- ============================================================
 
-CREATE TABLE motoristas (
+CREATE TABLE funcionarios (
     id                  UUID            PRIMARY KEY DEFAULT uuid_generate_v4(),
     nome                VARCHAR(150)    NOT NULL,
-    cpf                 BYTEA           NOT NULL UNIQUE,  -- pgp_sym_encrypt
-    cpf_hash            TEXT            NOT NULL UNIQUE,  -- digest(cpf, 'sha256') para lookup
-    numero_cnh          BYTEA           NOT NULL UNIQUE,  -- pgp_sym_encrypt
-    tipo_cnh            tipo_cnh        NOT NULL,
-    validade_cnh        DATE            NOT NULL,
+    cpf                 BYTEA           NOT NULL,
+    cpf_hash            TEXT            NOT NULL UNIQUE,
+    rg                  BYTEA,
+    data_nascimento     DATE,
     telefone            VARCHAR(20),
     email               VARCHAR(150),
-    -- endereço embutido (simples, sem tabela separada por ora)
-    endereco_logradouro VARCHAR(200),
-    endereco_numero     VARCHAR(10),
-    endereco_complemento VARCHAR(60),
-    endereco_bairro     VARCHAR(100),
-    endereco_cidade     VARCHAR(100),
-    endereco_uf         CHAR(2),
-    endereco_cep        VARCHAR(10),
-    -- dados profissionais
+    cep                 VARCHAR(10),
+    endereco            VARCHAR(200),
+    complemento         VARCHAR(60),
+    numero              VARCHAR(20),
+    bairro              VARCHAR(100),
+    cidade              VARCHAR(100),
+    estado              CHAR(2),
+    cargo               VARCHAR(120),
+    setor               VARCHAR(120),
+    tipo_contrato       tipo_contrato_funcionario NOT NULL DEFAULT 'clt',
     data_admissao       DATE,
-    status              status_motorista NOT NULL DEFAULT 'ativo',
-    foto_url            TEXT,
+    data_demissao       DATE,
+    status              status_funcionario NOT NULL DEFAULT 'ativo',
+    salario_base        NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    tipo_pagamento      tipo_pagamento_funcionario NOT NULL DEFAULT 'mensal',
+    valor_hora_extra    NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    adicional_noturno   NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    vale_alimentacao    NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    outros_descontos    NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    banco               VARCHAR(120),
+    agencia             VARCHAR(40),
+    conta               VARCHAR(40),
+    tipo_conta          tipo_conta_bancaria_funcionario NOT NULL DEFAULT 'corrente',
+    chave_pix           VARCHAR(120),
     observacoes         TEXT,
-    -- auditoria
     created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_motoristas_cpf_hash ON motoristas (cpf_hash);
-CREATE INDEX idx_motoristas_status ON motoristas (status);
+CREATE INDEX idx_funcionarios_cpf_hash ON funcionarios (cpf_hash);
+CREATE INDEX idx_funcionarios_status ON funcionarios (status);
+CREATE INDEX idx_funcionarios_setor ON funcionarios (setor);
+
+-- ============================================================
+--  CONTROLE DE PONTO DOS FUNCIONÁRIOS
+-- ============================================================
+
+CREATE TABLE funcionario_controle_ponto (
+    funcionario_id      UUID            PRIMARY KEY REFERENCES funcionarios (id) ON DELETE CASCADE,
+    horario_entrada     TIME,
+    horario_saida       TIME,
+    horario_almoco      TIME,
+    horas_extras        NUMERIC(10,2)   NOT NULL DEFAULT 0,
+    faltas              INTEGER         NOT NULL DEFAULT 0,
+    atestados           INTEGER         NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+--  MOTORISTAS
+-- ============================================================
+
+CREATE TABLE motoristas (
+    id                  UUID            PRIMARY KEY REFERENCES funcionarios (id) ON DELETE CASCADE,
+    numero_cnh          BYTEA           NOT NULL,
+    numero_cnh_hash     TEXT            NOT NULL UNIQUE,
+    tipo_cnh            tipo_cnh        NOT NULL,
+    validade_cnh        DATE            NOT NULL,
+    foto_url            TEXT,
+    observacoes         TEXT,
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX idx_motoristas_validade_cnh ON motoristas (validade_cnh);
+CREATE INDEX idx_motoristas_numero_cnh_hash ON motoristas (numero_cnh_hash);
 
 -- ============================================================
 --  VEÍCULOS
@@ -468,15 +517,16 @@ GROUP BY v.id, v.placa, v.modelo;
 CREATE OR REPLACE VIEW vw_indicadores_motorista AS
 SELECT
     m.id                                                                        AS motorista_id,
-    m.nome,
+    f.nome,
     COUNT(DISTINCT v.id)                                                        AS total_viagens,
     COALESCE(SUM(v.km_final - v.km_inicial) FILTER (WHERE v.km_final IS NOT NULL), 0) AS total_km_rodados,
     COUNT(DISTINCT o.id)                                                        AS total_ocorrencias,
     COALESCE(SUM(DISTINCT v.valor_frete), 0)                                    AS total_frete_gerado
 FROM motoristas m
+JOIN funcionarios f ON f.id = m.id
 LEFT JOIN viagens     v ON v.motorista_id = m.id
 LEFT JOIN ocorrencias o ON o.motorista_id = m.id
-GROUP BY m.id, m.nome;
+GROUP BY m.id, f.nome;
 
 -- Alertas de vencimento (CNH, seguro, licenciamento)
 CREATE OR REPLACE VIEW vw_alertas AS
@@ -485,12 +535,13 @@ SELECT
     'cnh_vencimento'    AS tipo_alerta,
     'motorista'         AS entidade,
     m.id                AS entidade_id,
-    m.nome              AS descricao,
+    f.nome              AS descricao,
     m.validade_cnh      AS data_referencia,
     m.validade_cnh - CURRENT_DATE AS dias_restantes
 FROM motoristas m
+JOIN funcionarios f ON f.id = m.id
 WHERE m.validade_cnh BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
-  AND m.status = 'ativo'
+  AND f.status = 'ativo'
 
 UNION ALL
 
@@ -553,6 +604,8 @@ END;
 $$;
 
 CREATE TRIGGER trg_motoristas_updated_at  BEFORE UPDATE ON motoristas  FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
+CREATE TRIGGER trg_funcionarios_updated_at BEFORE UPDATE ON funcionarios FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
+CREATE TRIGGER trg_funcionario_ponto_updated_at BEFORE UPDATE ON funcionario_controle_ponto FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_veiculos_updated_at    BEFORE UPDATE ON veiculos     FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_viagens_updated_at     BEFORE UPDATE ON viagens      FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_manutencoes_updated_at BEFORE UPDATE ON manutencoes  FOR EACH ROW EXECUTE FUNCTION fn_updated_at();

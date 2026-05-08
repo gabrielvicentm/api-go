@@ -36,6 +36,8 @@ func respondDomainError(c *gin.Context, err error, fallbackMessage string) {
 		c.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 	case errors.Is(err, domain.ErrConflict):
 		c.JSON(http.StatusConflict, gin.H{"message": err.Error()})
+	case errors.Is(err, domain.ErrProtectedRecord):
+		c.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 	case errors.Is(err, domain.ErrForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"message": err.Error()})
 	default:

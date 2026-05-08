@@ -38,13 +38,14 @@ func (r *AuthRepository) FindMotoristaByCPF(ctx context.Context, cpf string) (*d
 	const query = `
 		SELECT
 			m.id,
-			m.nome,
-			COALESCE(m.email, ''),
+			f.nome,
+			COALESCE(f.email, ''),
 			mc.senha_hash,
-			m.status = 'ativo' AND mc.ativo AS ativo
+			f.status = 'ativo' AND mc.ativo AS ativo
 		FROM motoristas m
+		JOIN funcionarios f ON f.id = m.id
 		JOIN motorista_credenciais mc ON mc.motorista_id = m.id
-		WHERE m.cpf_hash = encode(digest($1, 'sha256'), 'hex')
+		WHERE f.cpf_hash = encode(digest($1, 'sha256'), 'hex')
 		LIMIT 1
 	`
 
@@ -93,11 +94,12 @@ func (r *AuthRepository) FindActorByID(ctx context.Context, actorType, actorID s
 		const query = `
 			SELECT
 				m.id,
-				m.nome,
-				COALESCE(m.email, ''),
+				f.nome,
+				COALESCE(f.email, ''),
 				mc.senha_hash,
-				m.status = 'ativo' AND mc.ativo AS ativo
+				f.status = 'ativo' AND mc.ativo AS ativo
 			FROM motoristas m
+			JOIN funcionarios f ON f.id = m.id
 			JOIN motorista_credenciais mc ON mc.motorista_id = m.id
 			WHERE m.id = $1
 			LIMIT 1

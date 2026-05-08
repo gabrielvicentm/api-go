@@ -36,6 +36,7 @@ func main() {
 	}
 
 	authRepo := repository.NewAuthRepository(db)
+	funcionarioRepo := repository.NewFuncionarioRepository(db, dataEncryptionKey)
 	motoristaRepo := repository.NewMotoristaRepository(db, dataEncryptionKey)
 	veiculoRepo := repository.NewVeiculoRepository(db)
 	clienteRepo := repository.NewClienteRepository(db)
@@ -48,6 +49,7 @@ func main() {
 	authHandler := handler.NewAuthHandler(authService, authMiddleware)
 	dashboardHandler := handler.NewDashboardHandler()
 	adminUserHandler := handler.NewAdminUserHandler()
+	funcionarioHandler := handler.NewFuncionarioHandler(funcionarioRepo)
 	motoristaHandler := handler.NewMotoristaHandler(motoristaRepo, r2Storage)
 	veiculoHandler := handler.NewVeiculoHandler(veiculoRepo)
 	clienteHandler := handler.NewClienteHandler(clienteRepo)
@@ -73,6 +75,7 @@ func main() {
 
 	dashboardHandler.RegisterAdminRoutes(admin)
 	adminUserHandler.RegisterAdminRoutes(admin)
+	funcionarioHandler.RegisterAdminRoutes(admin)
 	motoristaHandler.RegisterAdminRoutes(admin)
 	veiculoHandler.RegisterAdminRoutes(admin)
 	clienteHandler.RegisterAdminRoutes(admin)

@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -27,9 +26,10 @@ func NewMotoristaRepository(db *pgxpool.Pool, encryptionKey string) *MotoristaRe
 func (r *MotoristaRepository) List(ctx context.Context, filter domain.MotoristaListFilter) ([]domain.MotoristaListItem, int64, error) {
 	const countQuery = `
 		SELECT COUNT(*)
-		FROM motoristas
-		WHERE ($1 = '' OR nome ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
-		  AND ($2 = '' OR status::text = $2)
+		FROM motoristas m
+		JOIN funcionarios f ON f.id = m.id
+		WHERE ($1 = '' OR f.nome ILIKE '%' || $1 || '%' OR COALESCE(f.email, '') ILIKE '%' || $1 || '%')
+		  AND ($2 = '' OR f.status::text = $2)
 	`
 
 	var total int64
@@ -39,21 +39,22 @@ func (r *MotoristaRepository) List(ctx context.Context, filter domain.MotoristaL
 
 	const query = `
 		SELECT
-			id,
-			nome,
-			pgp_sym_decrypt(cpf, $1)::text AS cpf,
-			pgp_sym_decrypt(numero_cnh, $1)::text AS numero_cnh,
-			tipo_cnh::text,
-			validade_cnh,
-			COALESCE(telefone, ''),
-			COALESCE(email, ''),
-			status::text,
-			COALESCE(foto_url, ''),
-			created_at
-		FROM motoristas
-		WHERE ($2 = '' OR nome ILIKE '%' || $2 || '%' OR email ILIKE '%' || $2 || '%')
-		  AND ($3 = '' OR status::text = $3)
-		ORDER BY nome ASC
+			m.id,
+			f.nome,
+			pgp_sym_decrypt(f.cpf, $1)::text AS cpf,
+			pgp_sym_decrypt(m.numero_cnh, $1)::text AS numero_cnh,
+			m.tipo_cnh::text,
+			m.validade_cnh,
+			COALESCE(f.telefone, ''),
+			COALESCE(f.email, ''),
+			f.status::text,
+			COALESCE(m.foto_url, ''),
+			m.created_at
+		FROM motoristas m
+		JOIN funcionarios f ON f.id = m.id
+		WHERE ($2 = '' OR f.nome ILIKE '%' || $2 || '%' OR COALESCE(f.email, '') ILIKE '%' || $2 || '%')
+		  AND ($3 = '' OR f.status::text = $3)
+		ORDER BY f.nome ASC
 		LIMIT $4 OFFSET $5
 	`
 
@@ -97,29 +98,30 @@ func (r *MotoristaRepository) List(ctx context.Context, filter domain.MotoristaL
 func (r *MotoristaRepository) GetByID(ctx context.Context, id string) (*domain.MotoristaDetail, error) {
 	const query = `
 		SELECT
-			id,
-			nome,
-			pgp_sym_decrypt(cpf, $2)::text AS cpf,
-			pgp_sym_decrypt(numero_cnh, $2)::text AS numero_cnh,
-			tipo_cnh::text,
-			validade_cnh,
-			COALESCE(telefone, ''),
-			COALESCE(email, ''),
-			COALESCE(endereco_logradouro, ''),
-			COALESCE(endereco_numero, ''),
-			COALESCE(endereco_complemento, ''),
-			COALESCE(endereco_bairro, ''),
-			COALESCE(endereco_cidade, ''),
-			COALESCE(endereco_uf, ''),
-			COALESCE(endereco_cep, ''),
-			data_admissao,
-			status::text,
-			COALESCE(foto_url, ''),
-			COALESCE(observacoes, ''),
-			created_at,
-			updated_at
-		FROM motoristas
-		WHERE id = $1
+			m.id,
+			f.nome,
+			pgp_sym_decrypt(f.cpf, $2)::text AS cpf,
+			pgp_sym_decrypt(m.numero_cnh, $2)::text AS numero_cnh,
+			m.tipo_cnh::text,
+			m.validade_cnh,
+			COALESCE(f.telefone, ''),
+			COALESCE(f.email, ''),
+			COALESCE(f.endereco, ''),
+			COALESCE(f.numero, ''),
+			COALESCE(f.complemento, ''),
+			COALESCE(f.bairro, ''),
+			COALESCE(f.cidade, ''),
+			COALESCE(f.estado, ''),
+			COALESCE(f.cep, ''),
+			f.data_admissao,
+			f.status::text,
+			COALESCE(m.foto_url, ''),
+			COALESCE(m.observacoes, ''),
+			m.created_at,
+			m.updated_at
+		FROM motoristas m
+		JOIN funcionarios f ON f.id = m.id
+		WHERE m.id = $1
 		LIMIT 1
 	`
 
@@ -169,16 +171,9 @@ func (r *MotoristaRepository) Create(ctx context.Context, input domain.Motorista
 		return nil, err
 	}
 
-	dataAdmissao, err := parseOptionalDate(input.DataAdmissao)
-	if err != nil {
-		return nil, err
-	}
-
 	status := normalizeMotoristaStatus(input.Status)
-	cpf := normalizeDigits(input.CPF)
 	cnh := normalizeDigits(input.NumeroCNH)
-
-	if len(cpf) != 11 || cnh == "" {
+	if cnh == "" {
 		return nil, domain.ErrInvalidInput
 	}
 
@@ -192,45 +187,54 @@ func (r *MotoristaRepository) Create(ctx context.Context, input domain.Motorista
 	}
 	defer tx.Rollback(ctx)
 
+	funcionarioRepo := NewFuncionarioRepository(r.db, r.encryptionKey)
+	funcionarioInput := domain.FuncionarioCreateRequest{
+		Nome:         input.Nome,
+		CPF:          input.CPF,
+		Telefone:     input.Telefone,
+		Email:        input.Email,
+		CEP:          input.EnderecoCEP,
+		Endereco:     input.EnderecoLogradouro,
+		Complemento:  input.EnderecoComplemento,
+		Numero:       input.EnderecoNumero,
+		Bairro:       input.EnderecoBairro,
+		Cidade:       input.EnderecoCidade,
+		Estado:       input.EnderecoUF,
+		Cargo:        "Motorista",
+		Setor:        "Operacao",
+		DataAdmissao: input.DataAdmissao,
+		Status:       status,
+	}
+
+	funcionario, err := funcionarioRepo.createBase(ctx, tx, funcionarioInput)
+	if err != nil {
+		return nil, err
+	}
+
 	const motoristaQuery = `
-		INSERT INTO motoristas (
-			nome, cpf, cpf_hash, numero_cnh, tipo_cnh, validade_cnh, telefone, email,
-			endereco_logradouro, endereco_numero, endereco_complemento, endereco_bairro,
-			endereco_cidade, endereco_uf, endereco_cep, data_admissao, status, observacoes
-		)
+		INSERT INTO motoristas (id, numero_cnh, numero_cnh_hash, tipo_cnh, validade_cnh, foto_url, observacoes)
 		VALUES (
-			$1, pgp_sym_encrypt($2, $18), encode(digest($2, 'sha256'), 'hex'),
-			pgp_sym_encrypt($3, $18), $4::tipo_cnh, $5, NULLIF($6, ''), NULLIF($7, ''),
-			NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''),
-			NULLIF($12, ''), NULLIF($13, ''), NULLIF($14, ''), $15, $16::status_motorista, NULLIF($17, '')
+			$1,
+			pgp_sym_encrypt($2, $7),
+			encode(digest($2, 'sha256'), 'hex'),
+			$3::tipo_cnh,
+			$4,
+			NULLIF($5, ''),
+			NULLIF($6, '')
 		)
-		RETURNING id
 	`
 
-	var id string
-	err = tx.QueryRow(
+	if _, err := tx.Exec(
 		ctx,
 		motoristaQuery,
-		strings.TrimSpace(input.Nome),
-		cpf,
+		funcionario.ID,
 		cnh,
 		strings.ToUpper(strings.TrimSpace(input.TipoCNH)),
 		validadeCNH,
-		strings.TrimSpace(input.Telefone),
-		normalizeNullableEmail(input.Email),
-		strings.TrimSpace(input.EnderecoLogradouro),
-		strings.TrimSpace(input.EnderecoNumero),
-		strings.TrimSpace(input.EnderecoComplemento),
-		strings.TrimSpace(input.EnderecoBairro),
-		strings.TrimSpace(input.EnderecoCidade),
-		strings.ToUpper(strings.TrimSpace(input.EnderecoUF)),
-		normalizeDigits(input.EnderecoCEP),
-		dataAdmissao,
-		status,
+		"",
 		strings.TrimSpace(input.Observacoes),
 		r.encryptionKey,
-	).Scan(&id)
-	if err != nil {
+	); err != nil {
 		return nil, mapDatabaseError(err)
 	}
 
@@ -238,7 +242,7 @@ func (r *MotoristaRepository) Create(ctx context.Context, input domain.Motorista
 		INSERT INTO motorista_credenciais (motorista_id, senha_hash, deve_trocar_senha, ativo)
 		VALUES ($1, $2, FALSE, TRUE)
 	`
-	if _, err := tx.Exec(ctx, credentialsQuery, id, passwordHash); err != nil {
+	if _, err := tx.Exec(ctx, credentialsQuery, funcionario.ID, passwordHash); err != nil {
 		return nil, mapDatabaseError(err)
 	}
 
@@ -246,7 +250,7 @@ func (r *MotoristaRepository) Create(ctx context.Context, input domain.Motorista
 		return nil, err
 	}
 
-	return r.GetByID(ctx, id)
+	return r.GetByID(ctx, funcionario.ID)
 }
 
 func (r *MotoristaRepository) Update(ctx context.Context, id string, input domain.MotoristaUpdateRequest, passwordHash *string) (*domain.MotoristaDetail, error) {
@@ -255,20 +259,19 @@ func (r *MotoristaRepository) Update(ctx context.Context, id string, input domai
 		return nil, err
 	}
 
-	dataAdmissao, err := parseOptionalDate(input.DataAdmissao)
-	if err != nil {
-		return nil, err
-	}
-
 	status := normalizeMotoristaStatus(input.Status)
-	cpf := normalizeDigits(input.CPF)
 	cnh := normalizeDigits(input.NumeroCNH)
-
-	if len(cpf) != 11 || cnh == "" {
+	if cnh == "" {
 		return nil, domain.ErrInvalidInput
 	}
 
 	if err := r.ensureUniqueCNH(ctx, cnh, id); err != nil {
+		return nil, err
+	}
+
+	funcionarioRepo := NewFuncionarioRepository(r.db, r.encryptionKey)
+	currentFuncionario, err := funcionarioRepo.GetByID(ctx, id)
+	if err != nil {
 		return nil, err
 	}
 
@@ -278,27 +281,58 @@ func (r *MotoristaRepository) Update(ctx context.Context, id string, input domai
 	}
 	defer tx.Rollback(ctx)
 
+	funcionarioInput := domain.FuncionarioUpdateRequest{
+		Nome:             input.Nome,
+		CPF:              input.CPF,
+		RG:               currentFuncionario.RG,
+		DataNascimento:   currentFuncionario.DataNascimento,
+		Telefone:         input.Telefone,
+		Email:            input.Email,
+		CEP:              input.EnderecoCEP,
+		Endereco:         input.EnderecoLogradouro,
+		Complemento:      input.EnderecoComplemento,
+		Numero:           input.EnderecoNumero,
+		Bairro:           input.EnderecoBairro,
+		Cidade:           input.EnderecoCidade,
+		Estado:           input.EnderecoUF,
+		Cargo:            currentFuncionario.Cargo,
+		Setor:            currentFuncionario.Setor,
+		TipoContrato:     currentFuncionario.TipoContrato,
+		DataAdmissao:     input.DataAdmissao,
+		DataDemissao:     currentFuncionario.DataDemissao,
+		Status:           status,
+		SalarioBase:      currentFuncionario.SalarioBase,
+		TipoPagamento:    currentFuncionario.TipoPagamento,
+		ValorHoraExtra:   currentFuncionario.ValorHoraExtra,
+		AdicionalNoturno: currentFuncionario.AdicionalNoturno,
+		ValeAlimentacao:  currentFuncionario.ValeAlimentacao,
+		OutrosDescontos:  currentFuncionario.OutrosDescontos,
+		Banco:            currentFuncionario.Banco,
+		Agencia:          currentFuncionario.Agencia,
+		Conta:            currentFuncionario.Conta,
+		TipoConta:        currentFuncionario.TipoConta,
+		ChavePix:         currentFuncionario.ChavePix,
+		HorarioEntrada:   currentFuncionario.HorarioEntrada,
+		HorarioSaida:     currentFuncionario.HorarioSaida,
+		HorarioAlmoco:    currentFuncionario.HorarioAlmoco,
+		HorasExtras:      currentFuncionario.HorasExtras,
+		Faltas:           currentFuncionario.Faltas,
+		Atestados:        currentFuncionario.Atestados,
+		Observacoes:      currentFuncionario.Observacoes,
+	}
+
+	if _, err := funcionarioRepo.updateBase(ctx, tx, id, funcionarioInput); err != nil {
+		return nil, err
+	}
+
 	const query = `
 		UPDATE motoristas
 		SET
-			nome = $2,
-			cpf = pgp_sym_encrypt($3, $19),
-			cpf_hash = encode(digest($3, 'sha256'), 'hex'),
-			numero_cnh = pgp_sym_encrypt($4, $19),
-			tipo_cnh = $5::tipo_cnh,
-			validade_cnh = $6,
-			telefone = NULLIF($7, ''),
-			email = NULLIF($8, ''),
-			endereco_logradouro = NULLIF($9, ''),
-			endereco_numero = NULLIF($10, ''),
-			endereco_complemento = NULLIF($11, ''),
-			endereco_bairro = NULLIF($12, ''),
-			endereco_cidade = NULLIF($13, ''),
-			endereco_uf = NULLIF($14, ''),
-			endereco_cep = NULLIF($15, ''),
-			data_admissao = $16,
-			status = $17::status_motorista,
-			observacoes = NULLIF($18, '')
+			numero_cnh = pgp_sym_encrypt($2, $6),
+			numero_cnh_hash = encode(digest($2, 'sha256'), 'hex'),
+			tipo_cnh = $3::tipo_cnh,
+			validade_cnh = $4,
+			observacoes = NULLIF($5, '')
 		WHERE id = $1
 	`
 
@@ -306,22 +340,9 @@ func (r *MotoristaRepository) Update(ctx context.Context, id string, input domai
 		ctx,
 		query,
 		id,
-		strings.TrimSpace(input.Nome),
-		cpf,
 		cnh,
 		strings.ToUpper(strings.TrimSpace(input.TipoCNH)),
 		validadeCNH,
-		strings.TrimSpace(input.Telefone),
-		normalizeNullableEmail(input.Email),
-		strings.TrimSpace(input.EnderecoLogradouro),
-		strings.TrimSpace(input.EnderecoNumero),
-		strings.TrimSpace(input.EnderecoComplemento),
-		strings.TrimSpace(input.EnderecoBairro),
-		strings.TrimSpace(input.EnderecoCidade),
-		strings.ToUpper(strings.TrimSpace(input.EnderecoUF)),
-		normalizeDigits(input.EnderecoCEP),
-		dataAdmissao,
-		status,
 		strings.TrimSpace(input.Observacoes),
 		r.encryptionKey,
 	)
@@ -351,8 +372,13 @@ func (r *MotoristaRepository) Update(ctx context.Context, id string, input domai
 }
 
 func (r *MotoristaRepository) Delete(ctx context.Context, id string) error {
-	const query = `DELETE FROM motoristas WHERE id = $1`
-	tag, err := r.db.Exec(ctx, query, id)
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `DELETE FROM motoristas WHERE id = $1`, id)
 	if err != nil {
 		return mapDatabaseError(err)
 	}
@@ -360,13 +386,17 @@ func (r *MotoristaRepository) Delete(ctx context.Context, id string) error {
 		return domain.ErrNotFound
 	}
 
-	return nil
+	if _, err := tx.Exec(ctx, `DELETE FROM funcionarios WHERE id = $1`, id); err != nil {
+		return mapDatabaseError(err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *MotoristaRepository) UpdateStatus(ctx context.Context, id, status string) (*domain.MotoristaDetail, error) {
 	const query = `
-		UPDATE motoristas
-		SET status = $2::status_motorista
+		UPDATE funcionarios
+		SET status = $2::status_funcionario
 		WHERE id = $1
 	`
 
@@ -526,17 +556,17 @@ func (r *MotoristaRepository) ensureUniqueCNH(ctx context.Context, cnh, excludeI
 	query := `
 		SELECT id
 		FROM motoristas
-		WHERE pgp_sym_decrypt(numero_cnh, $2)::text = $1
+		WHERE numero_cnh_hash = encode(digest($1, 'sha256'), 'hex')
 		LIMIT 1
 	`
-	args := []any{cnh, r.encryptionKey}
+	args := []any{cnh}
 
 	if excludeID != "" {
 		query = `
 			SELECT id
 			FROM motoristas
-			WHERE pgp_sym_decrypt(numero_cnh, $2)::text = $1
-			  AND id <> $3
+			WHERE numero_cnh_hash = encode(digest($1, 'sha256'), 'hex')
+			  AND id <> $2
 			LIMIT 1
 		`
 		args = append(args, excludeID)
@@ -560,22 +590,6 @@ func normalizeMotoristaStatus(status string) string {
 		return "ativo"
 	}
 	return status
-}
-
-func normalizeNullableEmail(email string) string {
-	return strings.TrimSpace(strings.ToLower(email))
-}
-
-func normalizeDigits(value string) string {
-	replacer := strings.NewReplacer(".", "", "-", "", "/", "", "(", "", ")", "", " ", "")
-	return replacer.Replace(strings.TrimSpace(value))
-}
-
-func maskCPF(cpf string) string {
-	if len(cpf) != 11 {
-		return cpf
-	}
-	return fmt.Sprintf("%s.%s.%s-%s", cpf[:3], cpf[3:6], cpf[6:9], cpf[9:])
 }
 
 func maskCNH(cnh string) string {

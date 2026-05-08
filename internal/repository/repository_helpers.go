@@ -10,6 +10,7 @@ import (
 )
 
 const dateLayout = "2006-01-02"
+const timeLayout = "15:04"
 
 func parseOptionalDate(value string) (*time.Time, error) {
 	value = strings.TrimSpace(value)
@@ -43,6 +44,44 @@ func formatOptionalDate(value *time.Time) string {
 	}
 
 	return value.Format(dateLayout)
+}
+
+func parseOptionalTime(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	parsed, err := time.Parse(timeLayout, value)
+	if err != nil {
+		return nil, domain.ErrInvalidInput
+	}
+
+	return &parsed, nil
+}
+
+func formatOptionalTime(value *time.Time) string {
+	if value == nil || value.IsZero() {
+		return ""
+	}
+
+	return value.Format(timeLayout)
+}
+
+func normalizeNullableEmail(email string) string {
+	return strings.TrimSpace(strings.ToLower(email))
+}
+
+func normalizeDigits(value string) string {
+	replacer := strings.NewReplacer(".", "", "-", "", "/", "", "(", "", ")", "", " ", "")
+	return replacer.Replace(strings.TrimSpace(value))
+}
+
+func maskCPF(cpf string) string {
+	if len(cpf) != 11 {
+		return cpf
+	}
+	return cpf[:3] + "." + cpf[3:6] + "." + cpf[6:9] + "-" + cpf[9:]
 }
 
 func mapDatabaseError(err error) error {

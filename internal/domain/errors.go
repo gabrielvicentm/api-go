@@ -11,4 +11,5 @@ var (
 	ErrNotFound           = errors.New("registro nao encontrado")
 	ErrConflict           = errors.New("registro ja existe com esses dados")
 	ErrInvalidInput       = errors.New("dados invalidos")
+	ErrProtectedRecord    = errors.New("registro vinculado a um motorista e nao pode ser removido por este modulo")
 )

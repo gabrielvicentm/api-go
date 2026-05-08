@@ -26,6 +26,7 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 		SELECT COUNT(*)
 		FROM viagens v
 		JOIN motoristas m ON m.id = v.motorista_id
+		JOIN funcionarios f ON f.id = m.id
 		JOIN veiculos ve ON ve.id = v.veiculo_id
 		LEFT JOIN clientes c ON c.id = v.cliente_id
 		LEFT JOIN tipos_carga tc ON tc.id = v.tipo_carga_id
@@ -35,7 +36,7 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 			OR v.destino_cidade ILIKE '%' || $1 || '%'
 			OR v.origem_uf ILIKE '%' || $1 || '%'
 			OR v.destino_uf ILIKE '%' || $1 || '%'
-			OR m.nome ILIKE '%' || $1 || '%'
+			OR f.nome ILIKE '%' || $1 || '%'
 			OR ve.placa ILIKE '%' || $1 || '%'
 			OR ve.modelo ILIKE '%' || $1 || '%'
 			OR COALESCE(c.nome, '') ILIKE '%' || $1 || '%'
@@ -68,7 +69,7 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 		SELECT
 			v.id,
 			v.motorista_id,
-			COALESCE(m.nome, ''),
+			COALESCE(f.nome, ''),
 			v.veiculo_id,
 			COALESCE(ve.placa, ''),
 			COALESCE(ve.modelo, ''),
@@ -94,6 +95,7 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 			v.updated_at
 		FROM viagens v
 		JOIN motoristas m ON m.id = v.motorista_id
+		JOIN funcionarios f ON f.id = m.id
 		JOIN veiculos ve ON ve.id = v.veiculo_id
 		LEFT JOIN clientes c ON c.id = v.cliente_id
 		LEFT JOIN tipos_carga tc ON tc.id = v.tipo_carga_id
@@ -103,7 +105,7 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 			OR v.destino_cidade ILIKE '%' || $1 || '%'
 			OR v.origem_uf ILIKE '%' || $1 || '%'
 			OR v.destino_uf ILIKE '%' || $1 || '%'
-			OR m.nome ILIKE '%' || $1 || '%'
+			OR f.nome ILIKE '%' || $1 || '%'
 			OR ve.placa ILIKE '%' || $1 || '%'
 			OR ve.modelo ILIKE '%' || $1 || '%'
 			OR COALESCE(c.nome, '') ILIKE '%' || $1 || '%'
@@ -684,9 +686,10 @@ func (r *ViagemRepository) CreateHistory(ctx context.Context, input domain.Viage
 
 func (r *ViagemRepository) EnsureMotoristaAtivo(ctx context.Context, motoristaID string) error {
 	const query = `
-		SELECT status::text
-		FROM motoristas
-		WHERE id = $1
+		SELECT f.status::text
+		FROM motoristas m
+		JOIN funcionarios f ON f.id = m.id
+		WHERE m.id = $1
 		LIMIT 1
 	`
 
