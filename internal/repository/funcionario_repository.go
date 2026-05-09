@@ -331,9 +331,9 @@ func (r *FuncionarioRepository) updateBase(ctx context.Context, tx pgx.Tx, id st
 		UPDATE funcionarios
 		SET
 			nome = $2,
-			cpf = pgp_sym_encrypt($3, $30),
+			cpf = pgp_sym_encrypt($3, $29),
 			cpf_hash = encode(digest($3, 'sha256'), 'hex'),
-			rg = CASE WHEN NULLIF($4, '') IS NULL THEN NULL ELSE pgp_sym_encrypt($4, $30) END,
+			rg = CASE WHEN NULLIF($4, '') IS NULL THEN NULL ELSE pgp_sym_encrypt($4, $29) END,
 			data_nascimento = $5,
 			telefone = NULLIF($6, ''),
 			email = NULLIF($7, ''),
@@ -358,7 +358,7 @@ func (r *FuncionarioRepository) updateBase(ctx context.Context, tx pgx.Tx, id st
 			outros_descontos = $26,
 			banco = NULLIF($27, ''),
 			agencia = NULLIF($28, ''),
-			conta = NULLIF($29, ''),
+			conta = NULLIF($30, ''),
 			tipo_conta = $31::tipo_conta_bancaria_funcionario,
 			chave_pix = NULLIF($32, ''),
 			observacoes = NULLIF($33, '')
@@ -409,8 +409,10 @@ func (r *FuncionarioRepository) updateBase(ctx context.Context, tx pgx.Tx, id st
 		return nil, domain.ErrNotFound
 	}
 
-	if err := r.upsertControlePonto(ctx, tx, id, horarioEntrada, horarioSaida, horarioAlmoco, input.HorasExtras, input.Faltas, input.Atestados); err != nil {
-		return nil, err
+	if shouldPersistControlePonto(input, horarioEntrada, horarioSaida, horarioAlmoco) {
+		if err := r.upsertControlePonto(ctx, tx, id, horarioEntrada, horarioSaida, horarioAlmoco, input.HorasExtras, input.Faltas, input.Atestados); err != nil {
+			return nil, err
+		}
 	}
 
 	if ownsTx {
@@ -477,11 +479,11 @@ func (r *FuncionarioRepository) createBase(ctx context.Context, tx pgx.Tx, input
 			banco, agencia, conta, tipo_conta, chave_pix, observacoes
 		)
 		VALUES (
-			$1, pgp_sym_encrypt($2, $30), encode(digest($2, 'sha256'), 'hex'),
-			CASE WHEN NULLIF($3, '') IS NULL THEN NULL ELSE pgp_sym_encrypt($3, $30) END,
+			$1, pgp_sym_encrypt($2, $29), encode(digest($2, 'sha256'), 'hex'),
+			CASE WHEN NULLIF($3, '') IS NULL THEN NULL ELSE pgp_sym_encrypt($3, $29) END,
 			$4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''),
 			NULLIF($14, ''), NULLIF($15, ''), $16::tipo_contrato_funcionario, $17, $18, $19::status_funcionario, $20, $21::tipo_pagamento_funcionario,
-			$22, $23, $24, $25, NULLIF($26, ''), NULLIF($27, ''), NULLIF($28, ''), $31::tipo_conta_bancaria_funcionario, NULLIF($32, ''), NULLIF($33, '')
+			$22, $23, $24, $25, NULLIF($26, ''), NULLIF($27, ''), NULLIF($28, ''), $30::tipo_conta_bancaria_funcionario, NULLIF($31, ''), NULLIF($32, '')
 		)
 		RETURNING id
 	`
@@ -527,8 +529,10 @@ func (r *FuncionarioRepository) createBase(ctx context.Context, tx pgx.Tx, input
 		return nil, mapDatabaseError(err)
 	}
 
-	if err := r.upsertControlePonto(ctx, tx, id, horarioEntrada, horarioSaida, horarioAlmoco, input.HorasExtras, input.Faltas, input.Atestados); err != nil {
-		return nil, err
+	if shouldPersistControlePonto(input, horarioEntrada, horarioSaida, horarioAlmoco) {
+		if err := r.upsertControlePonto(ctx, tx, id, horarioEntrada, horarioSaida, horarioAlmoco, input.HorasExtras, input.Faltas, input.Atestados); err != nil {
+			return nil, err
+		}
 	}
 
 	if ownsTx {
@@ -563,6 +567,18 @@ func (r *FuncionarioRepository) upsertControlePonto(ctx context.Context, tx pgx.
 	}
 
 	return nil
+}
+
+func shouldPersistControlePonto(input domain.FuncionarioCreateRequest, horarioEntrada, horarioSaida, horarioAlmoco *time.Time) bool {
+	if horarioEntrada != nil || horarioSaida != nil || horarioAlmoco != nil {
+		return true
+	}
+
+	if input.HorasExtras != 0 || input.Faltas != 0 || input.Atestados != 0 {
+		return true
+	}
+
+	return false
 }
 
 func normalizeFuncionarioStatus(status string) string {
