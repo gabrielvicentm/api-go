@@ -97,6 +97,42 @@ CREATE TABLE funcionario_controle_ponto (
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
+CREATE TYPE status_folha_funcionario AS ENUM ('aberta', 'fechada', 'paga');
+
+CREATE TABLE funcionario_folha_mensal (
+    id                          UUID            PRIMARY KEY DEFAULT uuid_generate_v4(),
+    funcionario_id              UUID            NOT NULL REFERENCES funcionarios (id) ON DELETE CASCADE,
+    competencia                 DATE            NOT NULL,
+    salario_base_snapshot       NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    valor_hora_extra_snapshot   NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    vale_alimentacao_snapshot   NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    outros_descontos_snapshot   NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    dias_faltas                 INTEGER         NOT NULL DEFAULT 0,
+    dias_atestado               INTEGER         NOT NULL DEFAULT 0,
+    dias_ferias                 INTEGER         NOT NULL DEFAULT 0,
+    dias_afastamento            INTEGER         NOT NULL DEFAULT 0,
+    horas_extras_50             NUMERIC(10,2)   NOT NULL DEFAULT 0,
+    horas_extras_100            NUMERIC(10,2)   NOT NULL DEFAULT 0,
+    horas_adicional_noturno     NUMERIC(10,2)   NOT NULL DEFAULT 0,
+    bonus                       NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    comissoes                   NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    outros_proventos            NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    adiantamentos               NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    desconto_inss               NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    desconto_irrf               NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    desconto_vale_transporte    NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    descontos_manuais           NUMERIC(12,2)   NOT NULL DEFAULT 0,
+    observacoes                 TEXT,
+    status                      status_folha_funcionario NOT NULL DEFAULT 'aberta',
+    pago_em                     TIMESTAMPTZ,
+    created_at                  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at                  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_funcionario_folha_competencia UNIQUE (funcionario_id, competencia)
+);
+
+CREATE INDEX idx_funcionario_folha_competencia ON funcionario_folha_mensal (competencia);
+CREATE INDEX idx_funcionario_folha_status ON funcionario_folha_mensal (status);
+
 -- ============================================================
 --  MOTORISTAS
 -- ============================================================
@@ -606,6 +642,7 @@ $$;
 CREATE TRIGGER trg_motoristas_updated_at  BEFORE UPDATE ON motoristas  FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_funcionarios_updated_at BEFORE UPDATE ON funcionarios FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_funcionario_ponto_updated_at BEFORE UPDATE ON funcionario_controle_ponto FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
+CREATE TRIGGER trg_funcionario_folha_updated_at BEFORE UPDATE ON funcionario_folha_mensal FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_veiculos_updated_at    BEFORE UPDATE ON veiculos     FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_viagens_updated_at     BEFORE UPDATE ON viagens      FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_manutencoes_updated_at BEFORE UPDATE ON manutencoes  FOR EACH ROW EXECUTE FUNCTION fn_updated_at();

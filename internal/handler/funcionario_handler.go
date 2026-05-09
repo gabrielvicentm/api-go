@@ -24,6 +24,9 @@ func (h *FuncionarioHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 	group.PUT("/funcionarios/:id", h.Update)
 	group.DELETE("/funcionarios/:id", h.Delete)
 	group.PATCH("/funcionarios/:id/status", h.UpdateStatus)
+	group.GET("/folha-pagamento", h.ListPayroll)
+	group.GET("/funcionarios/:id/folha-pagamento", h.ShowPayroll)
+	group.PUT("/funcionarios/:id/folha-pagamento", h.UpsertPayroll)
 }
 
 func (h *FuncionarioHandler) List(c *gin.Context) {
@@ -115,4 +118,44 @@ func (h *FuncionarioHandler) UpdateStatus(c *gin.Context) {
 	}
 
 	respondSuccess(c, http.StatusOK, "Status do funcionario atualizado com sucesso", item)
+}
+
+func (h *FuncionarioHandler) ListPayroll(c *gin.Context) {
+	items, err := h.repo.ListFolhaPagamento(c.Request.Context(), domain.FolhaPagamentoListFilter{
+		Search:      strings.TrimSpace(c.Query("search")),
+		Status:      strings.TrimSpace(c.Query("status")),
+		Competencia: strings.TrimSpace(c.Query("competencia")),
+	})
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao listar a folha de pagamento")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Folha de pagamento carregada com sucesso", items)
+}
+
+func (h *FuncionarioHandler) ShowPayroll(c *gin.Context) {
+	item, err := h.repo.GetFolhaPagamento(c.Request.Context(), c.Param("id"), strings.TrimSpace(c.Query("competencia")))
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao carregar a folha do funcionario")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Folha do funcionario carregada com sucesso", item)
+}
+
+func (h *FuncionarioHandler) UpsertPayroll(c *gin.Context) {
+	var input domain.FolhaPagamentoUpsertRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados da folha invalidos", err)
+		return
+	}
+
+	item, err := h.repo.UpsertFolhaPagamento(c.Request.Context(), c.Param("id"), input)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao salvar a folha do funcionario")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Folha do funcionario salva com sucesso", item)
 }
