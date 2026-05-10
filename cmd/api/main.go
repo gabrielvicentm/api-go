@@ -43,7 +43,9 @@ func main() {
 	tipoCargaRepo := repository.NewTipoCargaRepository(db)
 	manutencaoRepo := repository.NewManutencaoRepository(db)
 	viagemRepo := repository.NewViagemRepository(db)
+	notificacaoRepo := repository.NewNotificacaoRepository(db)
 	viagemService := service.NewViagemService(viagemRepo, r2Storage)
+	notificacaoService := service.NewNotificacaoService(notificacaoRepo)
 	authService := service.NewAuthService(authRepo, tokenManager)
 	authMiddleware := middleware.AuthMiddleware(tokenManager)
 	authHandler := handler.NewAuthHandler(authService, authMiddleware)
@@ -57,7 +59,7 @@ func main() {
 	viagemHandler := handler.NewViagemHandler(viagemRepo, viagemService)
 	ocorrenciaHandler := handler.NewOcorrenciaHandler()
 	abastecimentoHandler := handler.NewAbastecimentoHandler()
-	notificacaoHandler := handler.NewNotificacaoHandler()
+	notificacaoHandler := handler.NewNotificacaoHandler(notificacaoService)
 	manutencaoHandler := handler.NewManutencaoHandler(manutencaoRepo)
 	relatorioHandler := handler.NewRelatorioHandler()
 
@@ -66,6 +68,10 @@ func main() {
 	r.Static("/uploads", "./uploads")
 
 	authHandler.RegisterRoutes(r)
+
+	internal := r.Group("/internal")
+	internal.Use(middleware.InternalAuthMiddlewareFromEnv())
+	notificacaoHandler.RegisterInternalRoutes(internal)
 
 	admin := r.Group("/admin")
 	admin.Use(
