@@ -72,6 +72,7 @@ CREATE TABLE funcionarios (
     conta               VARCHAR(40),
     tipo_conta          tipo_conta_bancaria_funcionario NOT NULL DEFAULT 'corrente',
     chave_pix           VARCHAR(120),
+    foto_url            TEXT,
     observacoes         TEXT,
     created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()

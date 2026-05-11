@@ -43,7 +43,11 @@ func (r *FuncionarioRepository) List(ctx context.Context, filter domain.Funciona
 		SELECT
 			f.id,
 			f.nome,
-			pgp_sym_decrypt(f.cpf, $1)::text AS cpf,
+			CASE
+				WHEN f.cpf IS NULL THEN ''
+				ELSE '***.***.***-**'
+			END AS cpf,
+			COALESCE(f.foto_url, m.foto_url, ''),
 			COALESCE(f.telefone, ''),
 			COALESCE(f.email, ''),
 			COALESCE(f.cargo, ''),
@@ -56,18 +60,17 @@ func (r *FuncionarioRepository) List(ctx context.Context, filter domain.Funciona
 			f.created_at
 		FROM funcionarios f
 		LEFT JOIN motoristas m ON m.id = f.id
-		WHERE ($2 = '' OR f.nome ILIKE '%' || $2 || '%' OR COALESCE(f.email, '') ILIKE '%' || $2 || '%' OR COALESCE(f.cargo, '') ILIKE '%' || $2 || '%' OR COALESCE(f.setor, '') ILIKE '%' || $2 || '%')
-		  AND ($3 = '' OR f.status::text = $3)
-		  AND ($4 = '' OR CASE WHEN m.id IS NOT NULL THEN 'motorista' ELSE 'funcionario' END = $4)
-		  AND ($5 OR m.id IS NULL)
+		WHERE ($1 = '' OR f.nome ILIKE '%' || $1 || '%' OR COALESCE(f.email, '') ILIKE '%' || $1 || '%' OR COALESCE(f.cargo, '') ILIKE '%' || $1 || '%' OR COALESCE(f.setor, '') ILIKE '%' || $1 || '%')
+		  AND ($2 = '' OR f.status::text = $2)
+		  AND ($3 = '' OR CASE WHEN m.id IS NOT NULL THEN 'motorista' ELSE 'funcionario' END = $3)
+		  AND ($4 OR m.id IS NULL)
 		ORDER BY f.nome ASC
-		LIMIT $6 OFFSET $7
+		LIMIT $5 OFFSET $6
 	`
 
 	rows, err := r.db.Query(
 		ctx,
 		query,
-		r.encryptionKey,
 		filter.Search,
 		filter.Status,
 		normalizeFuncionarioTipo(filter.Tipo),
@@ -83,12 +86,12 @@ func (r *FuncionarioRepository) List(ctx context.Context, filter domain.Funciona
 	items := make([]domain.FuncionarioListItem, 0)
 	for rows.Next() {
 		var item domain.FuncionarioListItem
-		var cpf string
 		var dataAdmissao *time.Time
 		if err := rows.Scan(
 			&item.ID,
 			&item.Nome,
-			&cpf,
+			&item.CPF,
+			&item.FotoURL,
 			&item.Telefone,
 			&item.Email,
 			&item.Cargo,
@@ -103,7 +106,6 @@ func (r *FuncionarioRepository) List(ctx context.Context, filter domain.Funciona
 			return nil, 0, err
 		}
 
-		item.CPF = maskCPF(cpf)
 		item.DataAdmissao = formatOptionalDate(dataAdmissao)
 		items = append(items, item)
 	}
@@ -116,8 +118,8 @@ func (r *FuncionarioRepository) GetByID(ctx context.Context, id string) (*domain
 		SELECT
 			f.id,
 			f.nome,
-			pgp_sym_decrypt(f.cpf, $2)::text AS cpf,
-			COALESCE(pgp_sym_decrypt(f.rg, $2)::text, ''),
+			f.cpf,
+			f.rg,
 			f.data_nascimento,
 			COALESCE(f.telefone, ''),
 			COALESCE(f.email, ''),
@@ -145,6 +147,7 @@ func (r *FuncionarioRepository) GetByID(ctx context.Context, id string) (*domain
 			COALESCE(f.conta, ''),
 			COALESCE(f.tipo_conta::text, ''),
 			COALESCE(f.chave_pix, ''),
+			COALESCE(f.foto_url, m.foto_url, ''),
 			fcp.horario_entrada,
 			fcp.horario_saida,
 			fcp.horario_almoco,
@@ -164,6 +167,8 @@ func (r *FuncionarioRepository) GetByID(ctx context.Context, id string) (*domain
 	`
 
 	var item domain.FuncionarioDetail
+	var encryptedCPF []byte
+	var encryptedRG []byte
 	var dataNascimento *time.Time
 	var dataAdmissao *time.Time
 	var dataDemissao *time.Time
@@ -171,11 +176,11 @@ func (r *FuncionarioRepository) GetByID(ctx context.Context, id string) (*domain
 	var horarioSaida *time.Time
 	var horarioAlmoco *time.Time
 
-	err := r.db.QueryRow(ctx, query, id, r.encryptionKey).Scan(
+	err := r.db.QueryRow(ctx, query, id).Scan(
 		&item.ID,
 		&item.Nome,
-		&item.CPF,
-		&item.RG,
+		&encryptedCPF,
+		&encryptedRG,
 		&dataNascimento,
 		&item.Telefone,
 		&item.Email,
@@ -203,6 +208,7 @@ func (r *FuncionarioRepository) GetByID(ctx context.Context, id string) (*domain
 		&item.Conta,
 		&item.TipoConta,
 		&item.ChavePix,
+		&item.FotoURL,
 		&horarioEntrada,
 		&horarioSaida,
 		&horarioAlmoco,
@@ -219,6 +225,16 @@ func (r *FuncionarioRepository) GetByID(ctx context.Context, id string) (*domain
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
+		return nil, err
+	}
+
+	item.CPF, err = decryptTextField(ctx, r.db, encryptedCPF, r.encryptionKey)
+	if err != nil {
+		return nil, err
+	}
+
+	item.RG, err = decryptTextField(ctx, r.db, encryptedRG, r.encryptionKey)
+	if err != nil {
 		return nil, err
 	}
 
@@ -273,6 +289,24 @@ func (r *FuncionarioRepository) UpdateStatus(ctx context.Context, id, status str
 	tag, err := r.db.Exec(ctx, query, id, normalizeFuncionarioStatus(status))
 	if err != nil {
 		return nil, mapDatabaseError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, domain.ErrNotFound
+	}
+
+	return r.GetByID(ctx, id)
+}
+
+func (r *FuncionarioRepository) UpdatePhoto(ctx context.Context, id, photoURL string) (*domain.FuncionarioDetail, error) {
+	const query = `
+		UPDATE funcionarios
+		SET foto_url = $2
+		WHERE id = $1
+	`
+
+	tag, err := r.db.Exec(ctx, query, id, photoURL)
+	if err != nil {
+		return nil, err
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, domain.ErrNotFound

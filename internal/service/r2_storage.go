@@ -20,6 +20,7 @@ import (
 
 type PhotoStorage interface {
 	UploadMotoristaPhoto(ctx context.Context, body io.Reader, originalFilename, contentType string) (string, error)
+	UploadFuncionarioPhoto(ctx context.Context, body io.Reader, originalFilename, contentType string) (string, error)
 }
 
 type ViagemDocumentStorage interface {
@@ -27,11 +28,12 @@ type ViagemDocumentStorage interface {
 }
 
 type R2Storage struct {
-	bucketName    string
-	publicBaseURL string
-	motoristasKey string
-	viagensKey    string
-	uploader      *manager.Uploader
+	bucketName      string
+	publicBaseURL   string
+	funcionariosKey string
+	motoristasKey   string
+	viagensKey      string
+	uploader        *manager.Uploader
 }
 
 func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
@@ -42,6 +44,7 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 	region := strings.TrimSpace(os.Getenv("R2_REGION"))
 	endpoint := strings.TrimSpace(os.Getenv("R2_ENDPOINT"))
 	publicBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("R2_PUBLIC_BASE_URL")), "/")
+	funcionariosPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_FUNCIONARIOS_PREFIX")), "/")
 	motoristasPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_MOTORISTAS_PREFIX")), "/")
 	viagensPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_VIAGENS_DOCUMENTOS_PREFIX")), "/")
 
@@ -68,6 +71,9 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 		endpoint = fmt.Sprintf("https://%s.r2.cloudflarestorage.com", accountID)
 	}
 
+	if funcionariosPrefix == "" {
+		funcionariosPrefix = "funcionarios"
+	}
 	if motoristasPrefix == "" {
 		motoristasPrefix = "motoristas"
 	}
@@ -92,15 +98,24 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 	})
 
 	return &R2Storage{
-		bucketName:    bucketName,
-		publicBaseURL: publicBaseURL,
-		motoristasKey: motoristasPrefix,
-		viagensKey:    viagensPrefix,
-		uploader:      manager.NewUploader(client),
+		bucketName:      bucketName,
+		publicBaseURL:   publicBaseURL,
+		funcionariosKey: funcionariosPrefix,
+		motoristasKey:   motoristasPrefix,
+		viagensKey:      viagensPrefix,
+		uploader:        manager.NewUploader(client),
 	}, nil
 }
 
+func (s *R2Storage) UploadFuncionarioPhoto(ctx context.Context, body io.Reader, originalFilename, contentType string) (string, error) {
+	return s.uploadPhoto(ctx, s.funcionariosKey, body, originalFilename, contentType)
+}
+
 func (s *R2Storage) UploadMotoristaPhoto(ctx context.Context, body io.Reader, originalFilename, contentType string) (string, error) {
+	return s.uploadPhoto(ctx, s.motoristasKey, body, originalFilename, contentType)
+}
+
+func (s *R2Storage) uploadPhoto(ctx context.Context, prefix string, body io.Reader, originalFilename, contentType string) (string, error) {
 	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(originalFilename)))
 	if ext == "" {
 		ext = ".bin"
@@ -111,7 +126,7 @@ func (s *R2Storage) UploadMotoristaPhoto(ctx context.Context, body io.Reader, or
 		return "", err
 	}
 
-	key := strings.Trim(strings.Join([]string{s.motoristasKey, filename}, "/"), "/")
+	key := strings.Trim(strings.Join([]string{prefix, filename}, "/"), "/")
 	input := &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucketName),
 		Key:         aws.String(key),

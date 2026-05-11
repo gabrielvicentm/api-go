@@ -61,6 +61,7 @@ type FuncionarioListItem struct {
 	ID           string     `json:"id"`
 	Nome         string     `json:"nome"`
 	CPF          string     `json:"cpf"`
+	FotoURL      string     `json:"foto_url"`
 	Telefone     string     `json:"telefone,omitempty"`
 	Email        string     `json:"email,omitempty"`
 	Cargo        string     `json:"cargo,omitempty"`
@@ -105,6 +106,7 @@ type FuncionarioDetail struct {
 	Conta            string     `json:"conta,omitempty"`
 	TipoConta        string     `json:"tipo_conta,omitempty"`
 	ChavePix         string     `json:"chave_pix,omitempty"`
+	FotoURL          string     `json:"foto_url"`
 	HorarioEntrada   string     `json:"horario_entrada,omitempty"`
 	HorarioSaida     string     `json:"horario_saida,omitempty"`
 	HorarioAlmoco    string     `json:"horario_almoco,omitempty"`

@@ -1,16 +1,23 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
 
 	"github.com/gabrielvicentm/api-go.git/internal/domain"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const dateLayout = "2006-01-02"
 const timeLayout = "15:04"
+const localSeedEncryptionKey = "dev-local-key"
+
+type queryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 func parseOptionalDate(value string) (*time.Time, error) {
 	value = strings.TrimSpace(value)
@@ -82,6 +89,38 @@ func maskCPF(cpf string) string {
 		return cpf
 	}
 	return cpf[:3] + "." + cpf[3:6] + "." + cpf[6:9] + "-" + cpf[9:]
+}
+
+func decryptTextField(ctx context.Context, db queryRower, encrypted []byte, primaryKey string) (string, error) {
+	if len(encrypted) == 0 {
+		return "", nil
+	}
+
+	keys := []string{strings.TrimSpace(primaryKey)}
+	if localSeedEncryptionKey != strings.TrimSpace(primaryKey) {
+		keys = append(keys, localSeedEncryptionKey)
+	}
+
+	var lastErr error
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+
+		var value string
+		err := db.QueryRow(ctx, `SELECT pgp_sym_decrypt($1::bytea, $2)::text`, encrypted, key).Scan(&value)
+		if err == nil {
+			return value, nil
+		}
+
+		lastErr = err
+	}
+
+	if lastErr == nil {
+		return "", domain.ErrInvalidInput
+	}
+
+	return "", lastErr
 }
 
 func mapDatabaseError(err error) error {

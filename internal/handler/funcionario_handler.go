@@ -1,20 +1,26 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gabrielvicentm/api-go.git/internal/domain"
 	"github.com/gabrielvicentm/api-go.git/internal/repository"
+	"github.com/gabrielvicentm/api-go.git/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 type FuncionarioHandler struct {
-	repo *repository.FuncionarioRepository
+	repo         *repository.FuncionarioRepository
+	photoStorage service.PhotoStorage
 }
 
-func NewFuncionarioHandler(repo *repository.FuncionarioRepository) *FuncionarioHandler {
-	return &FuncionarioHandler{repo: repo}
+func NewFuncionarioHandler(repo *repository.FuncionarioRepository, photoStorage service.PhotoStorage) *FuncionarioHandler {
+	return &FuncionarioHandler{
+		repo:         repo,
+		photoStorage: photoStorage,
+	}
 }
 
 func (h *FuncionarioHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
@@ -24,6 +30,7 @@ func (h *FuncionarioHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 	group.PUT("/funcionarios/:id", h.Update)
 	group.DELETE("/funcionarios/:id", h.Delete)
 	group.PATCH("/funcionarios/:id/status", h.UpdateStatus)
+	group.POST("/funcionarios/:id/foto", h.UploadPhoto)
 	group.GET("/folha-pagamento", h.ListPayroll)
 	group.GET("/funcionarios/:id/folha-pagamento", h.ShowPayroll)
 	group.PUT("/funcionarios/:id/folha-pagamento", h.UpsertPayroll)
@@ -118,6 +125,46 @@ func (h *FuncionarioHandler) UpdateStatus(c *gin.Context) {
 	}
 
 	respondSuccess(c, http.StatusOK, "Status do funcionario atualizado com sucesso", item)
+}
+
+func (h *FuncionarioHandler) UploadPhoto(c *gin.Context) {
+	if h.photoStorage == nil {
+		respondDomainError(c, fmt.Errorf("photo storage nao configurado"), "Armazenamento de fotos nao configurado")
+		return
+	}
+
+	file, err := c.FormFile("foto")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "Arquivo de foto obrigatorio", err)
+		return
+	}
+
+	openedFile, err := file.Open()
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao abrir foto do funcionario")
+		return
+	}
+	defer openedFile.Close()
+
+	contentType, err := detectImageContentType(openedFile)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "Arquivo enviado nao e uma imagem valida", err)
+		return
+	}
+
+	photoURL, err := h.photoStorage.UploadFuncionarioPhoto(c.Request.Context(), openedFile, file.Filename, contentType)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao enviar foto do funcionario")
+		return
+	}
+
+	item, err := h.repo.UpdatePhoto(c.Request.Context(), c.Param("id"), photoURL)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao vincular foto ao funcionario")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Foto do funcionario enviada com sucesso", item)
 }
 
 func (h *FuncionarioHandler) ListPayroll(c *gin.Context) {

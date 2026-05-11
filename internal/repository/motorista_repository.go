@@ -54,7 +54,7 @@ func (r *MotoristaRepository) List(ctx context.Context, filter domain.MotoristaL
 			COALESCE(f.telefone, ''),
 			COALESCE(f.email, ''),
 			f.status::text,
-			COALESCE(m.foto_url, ''),
+			COALESCE(m.foto_url, f.foto_url, ''),
 			m.created_at
 		FROM motoristas m
 		JOIN funcionarios f ON f.id = m.id
@@ -102,8 +102,8 @@ func (r *MotoristaRepository) GetByID(ctx context.Context, id string) (*domain.M
 		SELECT
 			m.id,
 			f.nome,
-			pgp_sym_decrypt(f.cpf, $2)::text AS cpf,
-			pgp_sym_decrypt(m.numero_cnh, $2)::text AS numero_cnh,
+			f.cpf,
+			m.numero_cnh,
 			m.tipo_cnh::text,
 			m.validade_cnh,
 			COALESCE(f.telefone, ''),
@@ -117,7 +117,7 @@ func (r *MotoristaRepository) GetByID(ctx context.Context, id string) (*domain.M
 			COALESCE(f.cep, ''),
 			f.data_admissao,
 			f.status::text,
-			COALESCE(m.foto_url, ''),
+			COALESCE(m.foto_url, f.foto_url, ''),
 			COALESCE(m.observacoes, ''),
 			m.created_at,
 			m.updated_at
@@ -128,14 +128,16 @@ func (r *MotoristaRepository) GetByID(ctx context.Context, id string) (*domain.M
 	`
 
 	var detail domain.MotoristaDetail
+	var encryptedCPF []byte
+	var encryptedCNH []byte
 	var validade time.Time
 	var dataAdmissao *time.Time
 
-	err := r.db.QueryRow(ctx, query, id, r.encryptionKey).Scan(
+	err := r.db.QueryRow(ctx, query, id).Scan(
 		&detail.ID,
 		&detail.Nome,
-		&detail.CPF,
-		&detail.NumeroCNH,
+		&encryptedCPF,
+		&encryptedCNH,
 		&detail.TipoCNH,
 		&validade,
 		&detail.Telefone,
@@ -158,6 +160,16 @@ func (r *MotoristaRepository) GetByID(ctx context.Context, id string) (*domain.M
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
+		return nil, err
+	}
+
+	detail.CPF, err = decryptTextField(ctx, r.db, encryptedCPF, r.encryptionKey)
+	if err != nil {
+		return nil, err
+	}
+
+	detail.NumeroCNH, err = decryptTextField(ctx, r.db, encryptedCNH, r.encryptionKey)
+	if err != nil {
 		return nil, err
 	}
 
