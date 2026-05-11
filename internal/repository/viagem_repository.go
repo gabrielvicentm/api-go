@@ -183,7 +183,7 @@ func (r *ViagemRepository) GetByID(ctx context.Context, id string) (*domain.Viag
 		SELECT
 			v.id,
 			v.motorista_id,
-			COALESCE(m.nome, ''),
+			COALESCE(f.nome, ''),
 			v.veiculo_id,
 			COALESCE(ve.placa, ''),
 			COALESCE(ve.modelo, ''),
@@ -209,6 +209,7 @@ func (r *ViagemRepository) GetByID(ctx context.Context, id string) (*domain.Viag
 			v.updated_at
 		FROM viagens v
 		JOIN motoristas m ON m.id = v.motorista_id
+		JOIN funcionarios f ON f.id = m.id
 		JOIN veiculos ve ON ve.id = v.veiculo_id
 		LEFT JOIN clientes c ON c.id = v.cliente_id
 		LEFT JOIN tipos_carga tc ON tc.id = v.tipo_carga_id

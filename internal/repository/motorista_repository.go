@@ -41,8 +41,14 @@ func (r *MotoristaRepository) List(ctx context.Context, filter domain.MotoristaL
 		SELECT
 			m.id,
 			f.nome,
-			pgp_sym_decrypt(f.cpf, $1)::text AS cpf,
-			pgp_sym_decrypt(m.numero_cnh, $1)::text AS numero_cnh,
+			CASE
+				WHEN f.cpf IS NULL THEN ''
+				ELSE '***.***.***-**'
+			END AS cpf,
+			CASE
+				WHEN m.numero_cnh IS NULL THEN ''
+				ELSE '***********'
+			END AS numero_cnh,
 			m.tipo_cnh::text,
 			m.validade_cnh,
 			COALESCE(f.telefone, ''),
@@ -52,13 +58,13 @@ func (r *MotoristaRepository) List(ctx context.Context, filter domain.MotoristaL
 			m.created_at
 		FROM motoristas m
 		JOIN funcionarios f ON f.id = m.id
-		WHERE ($2 = '' OR f.nome ILIKE '%' || $2 || '%' OR COALESCE(f.email, '') ILIKE '%' || $2 || '%')
-		  AND ($3 = '' OR f.status::text = $3)
+		WHERE ($1 = '' OR f.nome ILIKE '%' || $1 || '%' OR COALESCE(f.email, '') ILIKE '%' || $1 || '%')
+		  AND ($2 = '' OR f.status::text = $2)
 		ORDER BY f.nome ASC
-		LIMIT $4 OFFSET $5
+		LIMIT $3 OFFSET $4
 	`
 
-	rows, err := r.db.Query(ctx, query, r.encryptionKey, filter.Search, filter.Status, filter.Limit, (filter.Page-1)*filter.Limit)
+	rows, err := r.db.Query(ctx, query, filter.Search, filter.Status, filter.Limit, (filter.Page-1)*filter.Limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -67,14 +73,12 @@ func (r *MotoristaRepository) List(ctx context.Context, filter domain.MotoristaL
 	items := make([]domain.MotoristaListItem, 0)
 	for rows.Next() {
 		var item domain.MotoristaListItem
-		var cpf string
-		var cnh string
 		var validade time.Time
 		if err := rows.Scan(
 			&item.ID,
 			&item.Nome,
-			&cpf,
-			&cnh,
+			&item.CPF,
+			&item.NumeroCNH,
 			&item.TipoCNH,
 			&validade,
 			&item.Telefone,
@@ -86,8 +90,6 @@ func (r *MotoristaRepository) List(ctx context.Context, filter domain.MotoristaL
 			return nil, 0, err
 		}
 
-		item.CPF = maskCPF(cpf)
-		item.NumeroCNH = maskCNH(cnh)
 		item.ValidadeCNH = validade.Format(dateLayout)
 		items = append(items, item)
 	}
