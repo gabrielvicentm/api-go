@@ -26,6 +26,32 @@ func (s *NotificacaoService) Create(ctx context.Context, input domain.Notificaca
 	return s.repo.Create(ctx, normalized)
 }
 
+func (s *NotificacaoService) ListByRecipient(ctx context.Context, filter domain.NotificacaoListFilter) ([]domain.NotificacaoDetail, int64, error) {
+	filter.DestinatarioTipo = strings.TrimSpace(strings.ToLower(filter.DestinatarioTipo))
+	filter.DestinatarioID = strings.TrimSpace(filter.DestinatarioID)
+
+	if err := validateNotificacaoRecipient(filter.DestinatarioTipo, filter.DestinatarioID); err != nil {
+		return nil, 0, err
+	}
+
+	return s.repo.ListByRecipient(ctx, filter)
+}
+
+func (s *NotificacaoService) MarkAsRead(ctx context.Context, id, destinatarioTipo, destinatarioID string) (*domain.NotificacaoDetail, error) {
+	id = strings.TrimSpace(id)
+	destinatarioTipo = strings.TrimSpace(strings.ToLower(destinatarioTipo))
+	destinatarioID = strings.TrimSpace(destinatarioID)
+
+	if id == "" {
+		return nil, fmt.Errorf("id da notificacao obrigatorio: %w", domain.ErrInvalidInput)
+	}
+	if err := validateNotificacaoRecipient(destinatarioTipo, destinatarioID); err != nil {
+		return nil, err
+	}
+
+	return s.repo.MarkAsReadByRecipient(ctx, id, destinatarioTipo, destinatarioID)
+}
+
 func normalizeNotificacaoCreate(input domain.NotificacaoCreateRequest) (domain.NotificacaoCreateRequest, error) {
 	input.DestinatarioTipo = strings.TrimSpace(strings.ToLower(input.DestinatarioTipo))
 	input.DestinatarioID = strings.TrimSpace(input.DestinatarioID)
@@ -69,4 +95,21 @@ func normalizeNotificacaoCreate(input domain.NotificacaoCreateRequest) (domain.N
 	}
 
 	return input, nil
+}
+
+func validateNotificacaoRecipient(destinatarioTipo, destinatarioID string) error {
+	switch destinatarioTipo {
+	case domain.DestinatarioTipoAdmin:
+		if destinatarioID == "" {
+			return fmt.Errorf("destinatario_id obrigatorio para notificacoes de admin autenticado: %w", domain.ErrInvalidInput)
+		}
+		return nil
+	case domain.DestinatarioTipoMotorista:
+		if destinatarioID == "" {
+			return fmt.Errorf("destinatario_id obrigatorio para notificacoes de motorista: %w", domain.ErrInvalidInput)
+		}
+		return nil
+	default:
+		return fmt.Errorf("destinatario_tipo invalido: %w", domain.ErrInvalidInput)
+	}
 }

@@ -21,6 +21,14 @@ type NotificacaoCreateRequest struct {
 	ReferenciaID     string `json:"referencia_id"`
 }
 
+type NotificacaoListFilter struct {
+	DestinatarioTipo string
+	DestinatarioID   string
+	Lida             *bool
+	Page             int
+	Limit            int
+}
+
 type NotificacaoDetail struct {
 	ID               string     `json:"id"`
 	DestinatarioTipo string     `json:"destinatario_tipo,omitempty"`

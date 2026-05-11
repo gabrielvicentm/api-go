@@ -2,8 +2,11 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gabrielvicentm/api-go.git/internal/domain"
+	"github.com/gabrielvicentm/api-go.git/internal/middleware"
 	"github.com/gabrielvicentm/api-go.git/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -47,17 +50,76 @@ func (h *NotificacaoHandler) CreateInternal(c *gin.Context) {
 }
 
 func (h *NotificacaoHandler) ListAdmin(c *gin.Context) {
-	respondProtected(c, "admin.notificacoes.list", "Listagem protegida de notificacoes administrativas")
+	h.listByRecipient(c, domain.DestinatarioTipoAdmin)
 }
 
 func (h *NotificacaoHandler) MarkAsReadAdmin(c *gin.Context) {
-	respondProtected(c, "admin.notificacoes.read.update", "Marcacao protegida de notificacao administrativa como lida")
+	h.markAsRead(c, domain.DestinatarioTipoAdmin)
 }
 
 func (h *NotificacaoHandler) ListMotorista(c *gin.Context) {
-	respondProtected(c, "motorista.notificacoes.list", "Listagem protegida de notificacoes do motorista")
+	h.listByRecipient(c, domain.DestinatarioTipoMotorista)
 }
 
 func (h *NotificacaoHandler) MarkAsReadMotorista(c *gin.Context) {
-	respondProtected(c, "motorista.notificacoes.read.update", "Marcacao protegida de notificacao do motorista como lida")
+	h.markAsRead(c, domain.DestinatarioTipoMotorista)
+}
+
+func (h *NotificacaoHandler) listByRecipient(c *gin.Context, destinatarioTipo string) {
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	page, limit := parsePagination(c)
+	lida, err := parseOptionalBoolQuery(c, "lida")
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "Parametro lida invalido", err)
+		return
+	}
+
+	items, total, err := h.service.ListByRecipient(c.Request.Context(), domain.NotificacaoListFilter{
+		DestinatarioTipo: destinatarioTipo,
+		DestinatarioID:   claims.UserID,
+		Lida:             lida,
+		Page:             page,
+		Limit:            limit,
+	})
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao listar notificacoes")
+		return
+	}
+
+	respondList(c, "Notificacoes listadas com sucesso", items, page, limit, total)
+}
+
+func (h *NotificacaoHandler) markAsRead(c *gin.Context, destinatarioTipo string) {
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	item, err := h.service.MarkAsRead(c.Request.Context(), c.Param("id"), destinatarioTipo, claims.UserID)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao marcar notificacao como lida")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Notificacao marcada como lida com sucesso", item)
+}
+
+func parseOptionalBoolQuery(c *gin.Context, key string) (*bool, error) {
+	raw := strings.TrimSpace(c.Query(key))
+	if raw == "" {
+		return nil, nil
+	}
+
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	return &parsed, nil
 }

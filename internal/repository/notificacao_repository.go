@@ -51,6 +51,101 @@ func (r *NotificacaoRepository) Create(ctx context.Context, input domain.Notific
 	return r.GetByID(ctx, id)
 }
 
+func (r *NotificacaoRepository) ListByRecipient(ctx context.Context, filter domain.NotificacaoListFilter) ([]domain.NotificacaoDetail, int64, error) {
+	const recipientWhere = `
+		(
+			$1 = 'admin'
+			AND (
+				(destinatario_tipo IS NULL AND destinatario_id IS NULL)
+				OR (
+					destinatario_tipo = 'admin'
+					AND (destinatario_id IS NULL OR destinatario_id::text = $2)
+				)
+			)
+		)
+		OR (
+			$1 = 'motorista'
+			AND destinatario_tipo = 'motorista'
+			AND destinatario_id::text = $2
+		)
+	`
+
+	const countQuery = `
+		SELECT COUNT(*)
+		FROM notificacoes
+		WHERE (` + recipientWhere + `)
+			AND ($3::boolean IS NULL OR lida = $3)
+	`
+
+	var total int64
+	if err := r.db.QueryRow(
+		ctx,
+		countQuery,
+		strings.TrimSpace(strings.ToLower(filter.DestinatarioTipo)),
+		strings.TrimSpace(filter.DestinatarioID),
+		filter.Lida,
+	).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	const query = `
+		SELECT
+			id,
+			COALESCE(destinatario_tipo, ''),
+			COALESCE(destinatario_id::text, ''),
+			COALESCE(origem_tipo, ''),
+			COALESCE(origem_id::text, ''),
+			titulo,
+			COALESCE(mensagem, ''),
+			lida,
+			COALESCE(referencia_tipo, ''),
+			COALESCE(referencia_id::text, ''),
+			created_at
+		FROM notificacoes
+		WHERE (` + recipientWhere + `)
+			AND ($3::boolean IS NULL OR lida = $3)
+		ORDER BY created_at DESC
+		LIMIT $4 OFFSET $5
+	`
+
+	rows, err := r.db.Query(
+		ctx,
+		query,
+		strings.TrimSpace(strings.ToLower(filter.DestinatarioTipo)),
+		strings.TrimSpace(filter.DestinatarioID),
+		filter.Lida,
+		filter.Limit,
+		(filter.Page-1)*filter.Limit,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]domain.NotificacaoDetail, 0)
+	for rows.Next() {
+		var item domain.NotificacaoDetail
+		if err := rows.Scan(
+			&item.ID,
+			&item.DestinatarioTipo,
+			&item.DestinatarioID,
+			&item.OrigemTipo,
+			&item.OrigemID,
+			&item.Titulo,
+			&item.Mensagem,
+			&item.Lida,
+			&item.ReferenciaTipo,
+			&item.ReferenciaID,
+			&item.CreatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}
+
 func (r *NotificacaoRepository) GetByID(ctx context.Context, id string) (*domain.NotificacaoDetail, error) {
 	const query = `
 		SELECT
@@ -91,4 +186,45 @@ func (r *NotificacaoRepository) GetByID(ctx context.Context, id string) (*domain
 	}
 
 	return &item, nil
+}
+
+func (r *NotificacaoRepository) MarkAsReadByRecipient(ctx context.Context, id, destinatarioTipo, destinatarioID string) (*domain.NotificacaoDetail, error) {
+	const query = `
+		UPDATE notificacoes
+		SET lida = TRUE
+		WHERE id = $1
+			AND (
+				(
+					$2 = 'admin'
+					AND (
+						(destinatario_tipo IS NULL AND destinatario_id IS NULL)
+						OR (
+							destinatario_tipo = 'admin'
+							AND (destinatario_id IS NULL OR destinatario_id::text = $3)
+						)
+					)
+				)
+				OR (
+					$2 = 'motorista'
+					AND destinatario_tipo = 'motorista'
+					AND destinatario_id::text = $3
+				)
+			)
+	`
+
+	tag, err := r.db.Exec(
+		ctx,
+		query,
+		id,
+		strings.TrimSpace(strings.ToLower(destinatarioTipo)),
+		strings.TrimSpace(destinatarioID),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, domain.ErrNotFound
+	}
+
+	return r.GetByID(ctx, id)
 }
