@@ -3,15 +3,16 @@ package domain
 import "time"
 
 type ViagemListFilter struct {
-	Search       string
-	Status       string
-	MotoristaID  string
-	VeiculoID    string
-	ClienteID    string
-	DataSaidaDe  string
-	DataSaidaAte string
-	Page         int
-	Limit        int
+	Search           string
+	Status           string
+	MotoristaID      string
+	VeiculoID        string
+	ClienteID        string
+	DataSaidaDe      string
+	DataSaidaAte     string
+	ExcludeConcluded bool
+	Page             int
+	Limit            int
 }
 
 type ViagemCreateRequest struct {
@@ -51,6 +52,12 @@ type ViagemUpdateRequest struct {
 	KMFinal             string `json:"km_final"`
 	Status              string `json:"status"`
 	Observacoes         string `json:"observacoes"`
+}
+
+type ViagemFinalizacaoAdminRequest struct {
+	KMFinal         string `json:"km_final" binding:"required"`
+	DataChegadaReal string `json:"data_chegada_real"`
+	ObservacaoAdmin string `json:"observacao_admin"`
 }
 
 type ViagemDetail struct {

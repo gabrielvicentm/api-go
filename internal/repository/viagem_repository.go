@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -48,6 +49,7 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 		AND ($5 = '' OR COALESCE(v.cliente_id::text, '') = $5)
 		AND ($6 = '' OR v.data_saida >= $6::timestamptz)
 		AND ($7 = '' OR v.data_saida <= $7::timestamptz)
+		AND (NOT $8 OR v.status <> 'concluida')
 	`
 
 	var total int64
@@ -61,6 +63,7 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 		filter.ClienteID,
 		filter.DataSaidaDe,
 		filter.DataSaidaAte,
+		filter.ExcludeConcluded,
 	).Scan(&total); err != nil {
 		return nil, 0, mapDatabaseError(err)
 	}
@@ -117,8 +120,9 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 		AND ($5 = '' OR COALESCE(v.cliente_id::text, '') = $5)
 		AND ($6 = '' OR v.data_saida >= $6::timestamptz)
 		AND ($7 = '' OR v.data_saida <= $7::timestamptz)
+		AND (NOT $8 OR v.status <> 'concluida')
 		ORDER BY v.data_saida DESC
-		LIMIT $8 OFFSET $9
+		LIMIT $9 OFFSET $10
 	`
 
 	rows, err := r.db.Query(
@@ -131,6 +135,7 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 		filter.ClienteID,
 		filter.DataSaidaDe,
 		filter.DataSaidaAte,
+		filter.ExcludeConcluded,
 		filter.Limit,
 		(filter.Page-1)*filter.Limit,
 	)
@@ -570,6 +575,127 @@ func (r *ViagemRepository) CreateDocument(ctx context.Context, input domain.Viag
 	}
 
 	return r.GetDocument(ctx, input.ViagemID, id)
+}
+
+func (r *ViagemRepository) FinalizeByAdmin(ctx context.Context, id string, input domain.ViagemFinalizacaoAdminRequest) (*domain.ViagemDetail, error) {
+	kmFinal := strings.TrimSpace(input.KMFinal)
+	if kmFinal == "" {
+		return nil, domain.ErrInvalidInput
+	}
+
+	kmFinalValue, err := strconv.ParseFloat(kmFinal, 64)
+	if err != nil || math.IsNaN(kmFinalValue) || math.IsInf(kmFinalValue, 0) {
+		return nil, domain.ErrInvalidInput
+	}
+
+	dataChegadaReal, err := parseOptionalTimestamp(input.DataChegadaReal)
+	if err != nil {
+		return nil, err
+	}
+	if dataChegadaReal == nil {
+		now := time.Now().UTC()
+		dataChegadaReal = &now
+	}
+
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	const currentQuery = `
+		SELECT veiculo_id::text, km_inicial::text, status::text
+		FROM viagens
+		WHERE id = $1
+		LIMIT 1
+	`
+
+	var veiculoID string
+	var kmInicialRaw string
+	var status string
+	if err := tx.QueryRow(ctx, currentQuery, strings.TrimSpace(id)).Scan(&veiculoID, &kmInicialRaw, &status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, mapDatabaseError(err)
+	}
+
+	if status == "cancelada" || status == "concluida" {
+		return nil, domain.ErrInvalidInput
+	}
+
+	kmInicialValue, err := strconv.ParseFloat(strings.TrimSpace(kmInicialRaw), 64)
+	if err != nil {
+		return nil, domain.ErrInvalidInput
+	}
+	if kmFinalValue < kmInicialValue {
+		return nil, domain.ErrInvalidInput
+	}
+
+	const updateTripQuery = `
+		UPDATE viagens
+		SET
+			km_final = $2::numeric,
+			data_chegada_real = $3,
+			status = 'concluida',
+			updated_at = NOW()
+		WHERE id = $1
+	`
+
+	tag, err := tx.Exec(ctx, updateTripQuery, strings.TrimSpace(id), kmFinal, dataChegadaReal)
+	if err != nil {
+		return nil, mapDatabaseError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, domain.ErrNotFound
+	}
+
+	const updateVehicleQuery = `
+		UPDATE veiculos
+		SET
+			km_atual = $2::numeric,
+			status = 'disponivel',
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateVehicleQuery, veiculoID, kmFinal); err != nil {
+		return nil, mapDatabaseError(err)
+	}
+
+	const insertFinalizationQuery = `
+		INSERT INTO viagem_finalizacoes (
+			viagem_id,
+			km_final,
+			status,
+			observacao_admin,
+			solicitado_em,
+			respondido_em
+		)
+		VALUES (
+			$1,
+			$2::numeric,
+			'aprovada',
+			NULLIF($3, ''),
+			$4,
+			$4
+		)
+	`
+	if _, err := tx.Exec(
+		ctx,
+		insertFinalizationQuery,
+		strings.TrimSpace(id),
+		kmFinal,
+		strings.TrimSpace(input.ObservacaoAdmin),
+		dataChegadaReal,
+	); err != nil {
+		return nil, mapDatabaseError(err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return r.GetByID(ctx, id)
 }
 
 func (r *ViagemRepository) Update(ctx context.Context, id string, input domain.ViagemUpdateRequest) (*domain.ViagemDetail, error) {

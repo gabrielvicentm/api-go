@@ -94,6 +94,43 @@ func (s *ViagemService) Update(ctx context.Context, id string, input domain.Viag
 	return updated, nil
 }
 
+func (s *ViagemService) FinalizeByAdmin(ctx context.Context, id string, input domain.ViagemFinalizacaoAdminRequest, actorType, actorID string) (*domain.ViagemDetail, error) {
+	before, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	updated, err := s.repo.FinalizeByAdmin(ctx, id, input)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, change := range collectViagemChanges(before, updated) {
+		if err := s.repo.CreateHistory(ctx, domain.ViagemHistoricoCreateInput{
+			ViagemID:      id,
+			UsuarioTipo:   actorType,
+			UsuarioID:     actorID,
+			CampoAlterado: change.Field,
+			ValorAnterior: change.Before,
+			ValorNovo:     change.After,
+			Descricao:     describeViagemChange(change),
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := s.repo.CreateHistory(ctx, domain.ViagemHistoricoCreateInput{
+		ViagemID:    id,
+		UsuarioTipo: actorType,
+		UsuarioID:   actorID,
+		Descricao:   "Viagem finalizada pelo administrativo",
+	}); err != nil {
+		return nil, err
+	}
+
+	return updated, nil
+}
+
 func validateViagemStatus(status string) error {
 	status = strings.TrimSpace(strings.ToLower(status))
 	if status == "" {

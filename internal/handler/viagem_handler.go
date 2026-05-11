@@ -33,6 +33,7 @@ func (h *ViagemHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 	group.POST("/viagens", h.Create)
 	group.GET("/viagens/:id", h.ShowAdmin)
 	group.PUT("/viagens/:id", h.Update)
+	group.POST("/viagens/:id/finalizar", h.FinalizeAdmin)
 	group.GET("/viagens/:id/historico", h.History)
 	group.GET("/viagens/:id/documentos", h.DocumentsList)
 	group.POST("/viagens/:id/documentos", h.DocumentsUpload)
@@ -52,17 +53,22 @@ func (h *ViagemHandler) RegisterMotoristaRoutes(group *gin.RouterGroup) {
 
 func (h *ViagemHandler) ListAdmin(c *gin.Context) {
 	page, limit := parsePagination(c)
+	excludeConcluded := false
+	if raw := strings.TrimSpace(strings.ToLower(c.Query("exclude_concluidas"))); raw == "true" || raw == "1" {
+		excludeConcluded = true
+	}
 
 	items, total, err := h.repo.List(c.Request.Context(), domain.ViagemListFilter{
-		Search:       strings.TrimSpace(c.Query("search")),
-		Status:       strings.TrimSpace(c.Query("status")),
-		MotoristaID:  strings.TrimSpace(c.Query("motorista_id")),
-		VeiculoID:    strings.TrimSpace(c.Query("veiculo_id")),
-		ClienteID:    strings.TrimSpace(c.Query("cliente_id")),
-		DataSaidaDe:  strings.TrimSpace(c.Query("data_saida_de")),
-		DataSaidaAte: strings.TrimSpace(c.Query("data_saida_ate")),
-		Page:         page,
-		Limit:        limit,
+		Search:           strings.TrimSpace(c.Query("search")),
+		Status:           strings.TrimSpace(c.Query("status")),
+		MotoristaID:      strings.TrimSpace(c.Query("motorista_id")),
+		VeiculoID:        strings.TrimSpace(c.Query("veiculo_id")),
+		ClienteID:        strings.TrimSpace(c.Query("cliente_id")),
+		DataSaidaDe:      strings.TrimSpace(c.Query("data_saida_de")),
+		DataSaidaAte:     strings.TrimSpace(c.Query("data_saida_ate")),
+		ExcludeConcluded: excludeConcluded,
+		Page:             page,
+		Limit:            limit,
 	})
 	if err != nil {
 		respondDomainError(c, err, "Erro interno ao listar viagens")
@@ -124,6 +130,28 @@ func (h *ViagemHandler) Update(c *gin.Context) {
 	}
 
 	respondSuccess(c, http.StatusOK, "Viagem atualizada com sucesso", item)
+}
+
+func (h *ViagemHandler) FinalizeAdmin(c *gin.Context) {
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	var input domain.ViagemFinalizacaoAdminRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados de finalizacao invalidos", err)
+		return
+	}
+
+	item, err := h.service.FinalizeByAdmin(c.Request.Context(), c.Param("id"), input, claims.ActorType, claims.UserID)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao finalizar viagem")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Viagem finalizada com sucesso", item)
 }
 
 func (h *ViagemHandler) History(c *gin.Context) {
@@ -214,7 +242,54 @@ func (h *ViagemHandler) DocumentView(c *gin.Context) {
 		return
 	}
 
-	c.Redirect(http.StatusFound, item.URL)
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, item.URL, nil)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao baixar documento da viagem")
+		return
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao baixar documento da viagem")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respondError(c, http.StatusBadGateway, "Nao foi possivel baixar o documento da viagem", fmt.Errorf("status remoto %d", resp.StatusCode))
+		return
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		switch strings.ToLower(strings.TrimSpace(item.Tipo)) {
+		case "pdf":
+			contentType = "application/pdf"
+		case "xml":
+			contentType = "application/xml"
+		default:
+			contentType = "application/octet-stream"
+		}
+	}
+
+	filename := strings.TrimSpace(filepath.Base(item.Nome))
+	if filename == "" || filename == "." {
+		filename = "documento-viagem"
+		if item.Tipo != "" {
+			filename += "." + strings.ToLower(strings.TrimSpace(item.Tipo))
+		}
+	}
+
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	if contentLength := resp.Header.Get("Content-Length"); contentLength != "" {
+		c.Header("Content-Length", contentLength)
+	}
+	c.Status(http.StatusOK)
+
+	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
+		_ = c.Error(err)
+	}
 }
 
 func (h *ViagemHandler) FinalizationsListAdmin(c *gin.Context) {

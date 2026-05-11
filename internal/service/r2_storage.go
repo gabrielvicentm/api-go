@@ -78,7 +78,7 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 		motoristasPrefix = "motoristas"
 	}
 	if viagensPrefix == "" {
-		viagensPrefix = "viagens/documentos"
+		viagensPrefix = "docs"
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(
