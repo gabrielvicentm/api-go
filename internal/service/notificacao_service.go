@@ -4,17 +4,24 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/gabrielvicentm/api-go.git/internal/domain"
 	"github.com/gabrielvicentm/api-go.git/internal/repository"
 )
 
 type NotificacaoService struct {
-	repo *repository.NotificacaoRepository
+	repo             *repository.NotificacaoRepository
+	mu               sync.Mutex
+	nextSubscriberID int64
+	subscribers      map[int64]notificacaoSubscriber
 }
 
 func NewNotificacaoService(repo *repository.NotificacaoRepository) *NotificacaoService {
-	return &NotificacaoService{repo: repo}
+	return &NotificacaoService{
+		repo:        repo,
+		subscribers: make(map[int64]notificacaoSubscriber),
+	}
 }
 
 func (s *NotificacaoService) Create(ctx context.Context, input domain.NotificacaoCreateRequest) (*domain.NotificacaoDetail, error) {
@@ -23,7 +30,14 @@ func (s *NotificacaoService) Create(ctx context.Context, input domain.Notificaca
 		return nil, err
 	}
 
-	return s.repo.Create(ctx, normalized)
+	item, err := s.repo.Create(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
+
+	s.broadcast(item)
+
+	return item, nil
 }
 
 func (s *NotificacaoService) ListByRecipient(ctx context.Context, filter domain.NotificacaoListFilter) ([]domain.NotificacaoDetail, int64, error) {
@@ -50,6 +64,93 @@ func (s *NotificacaoService) MarkAsRead(ctx context.Context, id, destinatarioTip
 	}
 
 	return s.repo.MarkAsReadByRecipient(ctx, id, destinatarioTipo, destinatarioID)
+}
+
+type NotificacaoSubscription struct {
+	Events <-chan domain.NotificacaoDetail
+	close  func()
+}
+
+func (s *NotificacaoService) Subscribe(destinatarioTipo, destinatarioID string) (*NotificacaoSubscription, error) {
+	destinatarioTipo = strings.TrimSpace(strings.ToLower(destinatarioTipo))
+	destinatarioID = strings.TrimSpace(destinatarioID)
+
+	if err := validateNotificacaoRecipient(destinatarioTipo, destinatarioID); err != nil {
+		return nil, err
+	}
+
+	events := make(chan domain.NotificacaoDetail, 10)
+
+	s.mu.Lock()
+	s.nextSubscriberID++
+	subscriberID := s.nextSubscriberID
+	s.subscribers[subscriberID] = notificacaoSubscriber{
+		destinatarioTipo: destinatarioTipo,
+		destinatarioID:   destinatarioID,
+		events:           events,
+	}
+	s.mu.Unlock()
+
+	return &NotificacaoSubscription{
+		Events: events,
+		close: func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+
+			if subscriber, ok := s.subscribers[subscriberID]; ok {
+				delete(s.subscribers, subscriberID)
+				close(subscriber.events)
+			}
+		},
+	}, nil
+}
+
+func (s *NotificacaoSubscription) Close() {
+	if s == nil || s.close == nil {
+		return
+	}
+
+	s.close()
+}
+
+type notificacaoSubscriber struct {
+	destinatarioTipo string
+	destinatarioID   string
+	events           chan domain.NotificacaoDetail
+}
+
+func (s *NotificacaoService) broadcast(item *domain.NotificacaoDetail) {
+	if item == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, subscriber := range s.subscribers {
+		if !canReceiveNotificacao(subscriber, item) {
+			continue
+		}
+
+		select {
+		case subscriber.events <- *item:
+		default:
+		}
+	}
+}
+
+func canReceiveNotificacao(subscriber notificacaoSubscriber, item *domain.NotificacaoDetail) bool {
+	switch subscriber.destinatarioTipo {
+	case domain.DestinatarioTipoAdmin:
+		return item.DestinatarioTipo == "" ||
+			(item.DestinatarioTipo == domain.DestinatarioTipoAdmin &&
+				(item.DestinatarioID == "" || item.DestinatarioID == subscriber.destinatarioID))
+	case domain.DestinatarioTipoMotorista:
+		return item.DestinatarioTipo == domain.DestinatarioTipoMotorista &&
+			item.DestinatarioID == subscriber.destinatarioID
+	default:
+		return false
+	}
 }
 
 func normalizeNotificacaoCreate(input domain.NotificacaoCreateRequest) (domain.NotificacaoCreateRequest, error) {

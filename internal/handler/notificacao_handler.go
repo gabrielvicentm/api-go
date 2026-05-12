@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gabrielvicentm/api-go.git/internal/domain"
 	"github.com/gabrielvicentm/api-go.git/internal/middleware"
@@ -21,6 +22,7 @@ func NewNotificacaoHandler(service *service.NotificacaoService) *NotificacaoHand
 
 func (h *NotificacaoHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 	group.GET("/notificacoes", h.ListAdmin)
+	group.GET("/notificacoes/stream", h.StreamAdmin)
 	group.PATCH("/notificacoes/:id/lida", h.MarkAsReadAdmin)
 }
 
@@ -55,6 +57,10 @@ func (h *NotificacaoHandler) ListAdmin(c *gin.Context) {
 
 func (h *NotificacaoHandler) MarkAsReadAdmin(c *gin.Context) {
 	h.markAsRead(c, domain.DestinatarioTipoAdmin)
+}
+
+func (h *NotificacaoHandler) StreamAdmin(c *gin.Context) {
+	h.streamByRecipient(c, domain.DestinatarioTipoAdmin)
 }
 
 func (h *NotificacaoHandler) ListMotorista(c *gin.Context) {
@@ -108,6 +114,54 @@ func (h *NotificacaoHandler) markAsRead(c *gin.Context, destinatarioTipo string)
 	}
 
 	respondSuccess(c, http.StatusOK, "Notificacao marcada como lida com sucesso", item)
+}
+
+func (h *NotificacaoHandler) streamByRecipient(c *gin.Context, destinatarioTipo string) {
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"message": "Streaming nao suportado"})
+		return
+	}
+
+	subscription, err := h.service.Subscribe(destinatarioTipo, claims.UserID)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao conectar stream de notificacoes")
+		return
+	}
+	defer subscription.Close()
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+
+	c.SSEvent("connected", gin.H{"status": "ok"})
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case item, ok := <-subscription.Events:
+			if !ok {
+				return
+			}
+			c.SSEvent("notificacao", item)
+			flusher.Flush()
+		case <-heartbeat.C:
+			c.SSEvent("ping", gin.H{"at": time.Now().UTC()})
+			flusher.Flush()
+		}
+	}
 }
 
 func parseOptionalBoolQuery(c *gin.Context, key string) (*bool, error) {
