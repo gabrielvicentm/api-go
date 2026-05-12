@@ -175,8 +175,13 @@ func (h *AuthHandler) handleAuthError(c *gin.Context, err error, fallbackMessage
 }
 
 func respondError(c *gin.Context, status int, message string, err error) {
+	detail := formatRequestError(err)
+	if detail == "" {
+		detail = message
+	}
+
 	c.JSON(status, gin.H{
-		"message": message,
-		"error":   err.Error(),
+		"message": detail,
+		"error":   detail,
 	})
 }

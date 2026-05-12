@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -348,7 +349,7 @@ func (r *FuncionarioRepository) updateBase(ctx context.Context, tx pgx.Tx, id st
 
 	cpf := normalizeDigits(input.CPF)
 	if len(cpf) != 11 {
-		return nil, domain.ErrInvalidInput
+		return nil, fmt.Errorf("cpf deve ter 11 digitos: %w", domain.ErrInvalidInput)
 	}
 
 	ownsTx := false
@@ -492,7 +493,7 @@ func (r *FuncionarioRepository) createBase(ctx context.Context, tx pgx.Tx, input
 
 	cpf := normalizeDigits(input.CPF)
 	if len(cpf) != 11 {
-		return nil, domain.ErrInvalidInput
+		return nil, fmt.Errorf("cpf deve ter 11 digitos: %w", domain.ErrInvalidInput)
 	}
 
 	ownsTx := false

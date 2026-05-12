@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -27,7 +28,7 @@ func parseOptionalDate(value string) (*time.Time, error) {
 
 	parsed, err := time.Parse(dateLayout, value)
 	if err != nil {
-		return nil, domain.ErrInvalidInput
+		return nil, fmt.Errorf("data invalida, use o formato YYYY-MM-DD: %w", domain.ErrInvalidInput)
 	}
 
 	return &parsed, nil
@@ -39,7 +40,7 @@ func parseRequiredDate(value string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	if parsed == nil {
-		return time.Time{}, domain.ErrInvalidInput
+		return time.Time{}, fmt.Errorf("data obrigatoria: %w", domain.ErrInvalidInput)
 	}
 
 	return *parsed, nil
@@ -61,7 +62,7 @@ func parseOptionalTime(value string) (*time.Time, error) {
 
 	parsed, err := time.Parse(timeLayout, value)
 	if err != nil {
-		return nil, domain.ErrInvalidInput
+		return nil, fmt.Errorf("horario invalido, use o formato HH:MM: %w", domain.ErrInvalidInput)
 	}
 
 	return &parsed, nil
