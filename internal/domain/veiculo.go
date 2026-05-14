@@ -10,6 +10,18 @@ type VeiculoListFilter struct {
 	Limit  int
 }
 
+type VeiculoConsumptionListFilter struct {
+	Search string
+	Page   int
+	Limit  int
+}
+
+type VeiculoCostListFilter struct {
+	Search string
+	Page   int
+	Limit  int
+}
+
 type VeiculoCreateRequest struct {
 	Placa                   string `json:"placa" binding:"required"`
 	Modelo                  string `json:"modelo" binding:"required"`
@@ -73,6 +85,8 @@ type VeiculoCostSummary struct {
 	CustoTotal       float64 `json:"custo_total"`
 }
 
+type VeiculoCostListItem = VeiculoCostSummary
+
 type VeiculoConsumptionSummary struct {
 	VeiculoID           string  `json:"veiculo_id"`
 	Placa               string  `json:"placa"`
@@ -83,6 +97,8 @@ type VeiculoConsumptionSummary struct {
 	ConsumoKMPorLitro   float64 `json:"consumo_km_por_litro"`
 	CustoCombustivel    float64 `json:"custo_combustivel"`
 }
+
+type VeiculoConsumptionListItem = VeiculoConsumptionSummary
 
 type VeiculoHistoryItem struct {
 	Tipo       string `json:"tipo"`

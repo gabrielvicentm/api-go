@@ -19,6 +19,8 @@ func NewVeiculoHandler(repo *repository.VeiculoRepository) *VeiculoHandler {
 
 func (h *VeiculoHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 	group.GET("/veiculos", h.List)
+	group.GET("/veiculos/custos-totais", h.ListCosts)
+	group.GET("/veiculos/consumo-medio", h.ListConsumption)
 	group.POST("/veiculos", h.Create)
 	group.GET("/veiculos/:id", h.Show)
 	group.PUT("/veiculos/:id", h.Update)
@@ -60,6 +62,38 @@ func (h *VeiculoHandler) Create(c *gin.Context) {
 	}
 
 	respondSuccess(c, http.StatusCreated, "Veiculo cadastrado com sucesso", item)
+}
+
+func (h *VeiculoHandler) ListCosts(c *gin.Context) {
+	page, limit := parsePagination(c)
+
+	items, total, err := h.repo.ListCosts(c.Request.Context(), domain.VeiculoCostListFilter{
+		Search: strings.TrimSpace(c.Query("search")),
+		Page:   page,
+		Limit:  limit,
+	})
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao listar custos totais dos veiculos")
+		return
+	}
+
+	respondList(c, "Custos totais dos veiculos carregados com sucesso", items, page, limit, total)
+}
+
+func (h *VeiculoHandler) ListConsumption(c *gin.Context) {
+	page, limit := parsePagination(c)
+
+	items, total, err := h.repo.ListConsumption(c.Request.Context(), domain.VeiculoConsumptionListFilter{
+		Search: strings.TrimSpace(c.Query("search")),
+		Page:   page,
+		Limit:  limit,
+	})
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao listar consumo medio dos veiculos")
+		return
+	}
+
+	respondList(c, "Consumo medio dos veiculos carregado com sucesso", items, page, limit, total)
 }
 
 func (h *VeiculoHandler) Show(c *gin.Context) {

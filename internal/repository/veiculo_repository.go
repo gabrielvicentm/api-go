@@ -293,6 +293,57 @@ func (r *VeiculoRepository) GetCosts(ctx context.Context, id string) (*domain.Ve
 	return &item, nil
 }
 
+func (r *VeiculoRepository) ListCosts(ctx context.Context, filter domain.VeiculoCostListFilter) ([]domain.VeiculoCostListItem, int64, error) {
+	const countQuery = `
+		SELECT COUNT(*)
+		FROM vw_custo_total_veiculo
+		WHERE ($1 = '' OR placa ILIKE '%' || $1 || '%' OR modelo ILIKE '%' || $1 || '%')
+	`
+
+	var total int64
+	if err := r.db.QueryRow(ctx, countQuery, filter.Search).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	const query = `
+		SELECT
+			veiculo_id,
+			placa,
+			modelo,
+			COALESCE(custo_combustivel, 0),
+			COALESCE(custo_manutencao, 0),
+			COALESCE(custo_total, 0)
+		FROM vw_custo_total_veiculo
+		WHERE ($1 = '' OR placa ILIKE '%' || $1 || '%' OR modelo ILIKE '%' || $1 || '%')
+		ORDER BY custo_total DESC, placa ASC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.Query(ctx, query, filter.Search, filter.Limit, (filter.Page-1)*filter.Limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]domain.VeiculoCostListItem, 0)
+	for rows.Next() {
+		var item domain.VeiculoCostListItem
+		if err := rows.Scan(
+			&item.VeiculoID,
+			&item.Placa,
+			&item.Modelo,
+			&item.CustoCombustivel,
+			&item.CustoManutencao,
+			&item.CustoTotal,
+		); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}
+
 func (r *VeiculoRepository) GetConsumption(ctx context.Context, id string) (*domain.VeiculoConsumptionSummary, error) {
 	const query = `
 		SELECT veiculo_id, placa, modelo, total_abastecimentos, COALESCE(total_litros, 0),
@@ -321,6 +372,61 @@ func (r *VeiculoRepository) GetConsumption(ctx context.Context, id string) (*dom
 	}
 
 	return &item, nil
+}
+
+func (r *VeiculoRepository) ListConsumption(ctx context.Context, filter domain.VeiculoConsumptionListFilter) ([]domain.VeiculoConsumptionListItem, int64, error) {
+	const countQuery = `
+		SELECT COUNT(*)
+		FROM vw_consumo_veiculo
+		WHERE ($1 = '' OR placa ILIKE '%' || $1 || '%' OR modelo ILIKE '%' || $1 || '%')
+	`
+
+	var total int64
+	if err := r.db.QueryRow(ctx, countQuery, filter.Search).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	const query = `
+		SELECT
+			veiculo_id,
+			placa,
+			modelo,
+			total_abastecimentos,
+			COALESCE(total_litros, 0),
+			COALESCE(km_percorridos, 0),
+			COALESCE(consumo_km_por_litro, 0),
+			COALESCE(custo_combustivel, 0)
+		FROM vw_consumo_veiculo
+		WHERE ($1 = '' OR placa ILIKE '%' || $1 || '%' OR modelo ILIKE '%' || $1 || '%')
+		ORDER BY consumo_km_por_litro DESC NULLS LAST, placa ASC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.Query(ctx, query, filter.Search, filter.Limit, (filter.Page-1)*filter.Limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]domain.VeiculoConsumptionListItem, 0)
+	for rows.Next() {
+		var item domain.VeiculoConsumptionListItem
+		if err := rows.Scan(
+			&item.VeiculoID,
+			&item.Placa,
+			&item.Modelo,
+			&item.TotalAbastecimentos,
+			&item.TotalLitros,
+			&item.KMPercorridos,
+			&item.ConsumoKMPorLitro,
+			&item.CustoCombustivel,
+		); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
 }
 
 func (r *VeiculoRepository) GetHistory(ctx context.Context, id string) ([]domain.VeiculoHistoryItem, error) {
