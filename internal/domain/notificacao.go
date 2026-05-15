@@ -42,3 +42,26 @@ type NotificacaoDetail struct {
 	ReferenciaID     string     `json:"referencia_id,omitempty"`
 	CreatedAt        *time.Time `json:"created_at,omitempty"`
 }
+
+type PushTokenRegisterRequest struct {
+	Token    string `json:"token" binding:"required"`
+	Platform string `json:"platform"`
+	DeviceID string `json:"device_id"`
+}
+
+type PushTokenDeleteRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+
+type PushTokenDetail struct {
+	ID         string     `json:"id"`
+	ActorType  string     `json:"actor_type"`
+	ActorID    string     `json:"actor_id"`
+	Token      string     `json:"token"`
+	Platform   string     `json:"platform,omitempty"`
+	DeviceID   string     `json:"device_id,omitempty"`
+	Ativo      bool       `json:"ativo"`
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+	CreatedAt  *time.Time `json:"created_at,omitempty"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+}

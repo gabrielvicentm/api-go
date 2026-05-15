@@ -432,6 +432,22 @@ CREATE TABLE notificacoes (
 CREATE INDEX idx_notificacoes_destinatario ON notificacoes (destinatario_tipo, destinatario_id, lida);
 CREATE INDEX idx_notificacoes_data         ON notificacoes (created_at DESC);
 
+CREATE TABLE push_tokens (
+    id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    actor_type      VARCHAR(20) NOT NULL CHECK (actor_type IN ('admin', 'motorista')),
+    actor_id        UUID        NOT NULL,
+    token           TEXT        NOT NULL UNIQUE,
+    platform        VARCHAR(20) CHECK (platform IN ('android', 'ios', 'web')),
+    device_id       TEXT,
+    ativo           BOOLEAN     NOT NULL DEFAULT TRUE,
+    last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_push_tokens_actor ON push_tokens (actor_type, actor_id, ativo);
+CREATE INDEX idx_push_tokens_active ON push_tokens (ativo, last_seen_at DESC);
+
 -- ============================================================
 --  USUÁRIOS ADMINISTRATIVOS
 -- ============================================================
@@ -648,6 +664,7 @@ CREATE TRIGGER trg_veiculos_updated_at    BEFORE UPDATE ON veiculos     FOR EACH
 CREATE TRIGGER trg_viagens_updated_at     BEFORE UPDATE ON viagens      FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_manutencoes_updated_at BEFORE UPDATE ON manutencoes  FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_clientes_updated_at    BEFORE UPDATE ON clientes      FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
+CREATE TRIGGER trg_push_tokens_updated_at BEFORE UPDATE ON push_tokens   FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_usuarios_updated_at    BEFORE UPDATE ON usuarios      FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_auth_refresh_tokens_updated_at BEFORE UPDATE ON auth_refresh_tokens FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 

@@ -23,11 +23,15 @@ func NewNotificacaoHandler(service *service.NotificacaoService) *NotificacaoHand
 func (h *NotificacaoHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 	group.GET("/notificacoes", h.ListAdmin)
 	group.GET("/notificacoes/stream", h.StreamAdmin)
+	group.POST("/notificacoes/push-token", h.RegisterPushTokenAdmin)
+	group.DELETE("/notificacoes/push-token", h.DeletePushTokenAdmin)
 	group.PATCH("/notificacoes/:id/lida", h.MarkAsReadAdmin)
 }
 
 func (h *NotificacaoHandler) RegisterMotoristaRoutes(group *gin.RouterGroup) {
 	group.GET("/notificacoes", h.ListMotorista)
+	group.POST("/notificacoes/push-token", h.RegisterPushTokenMotorista)
+	group.DELETE("/notificacoes/push-token", h.DeletePushTokenMotorista)
 	group.PATCH("/notificacoes/:id/lida", h.MarkAsReadMotorista)
 }
 
@@ -63,12 +67,28 @@ func (h *NotificacaoHandler) StreamAdmin(c *gin.Context) {
 	h.streamByRecipient(c, domain.DestinatarioTipoAdmin)
 }
 
+func (h *NotificacaoHandler) RegisterPushTokenAdmin(c *gin.Context) {
+	h.registerPushToken(c, domain.ActorTypeAdmin)
+}
+
+func (h *NotificacaoHandler) DeletePushTokenAdmin(c *gin.Context) {
+	h.deletePushToken(c, domain.ActorTypeAdmin)
+}
+
 func (h *NotificacaoHandler) ListMotorista(c *gin.Context) {
 	h.listByRecipient(c, domain.DestinatarioTipoMotorista)
 }
 
 func (h *NotificacaoHandler) MarkAsReadMotorista(c *gin.Context) {
 	h.markAsRead(c, domain.DestinatarioTipoMotorista)
+}
+
+func (h *NotificacaoHandler) RegisterPushTokenMotorista(c *gin.Context) {
+	h.registerPushToken(c, domain.ActorTypeMotorista)
+}
+
+func (h *NotificacaoHandler) DeletePushTokenMotorista(c *gin.Context) {
+	h.deletePushToken(c, domain.ActorTypeMotorista)
 }
 
 func (h *NotificacaoHandler) listByRecipient(c *gin.Context, destinatarioTipo string) {
@@ -114,6 +134,49 @@ func (h *NotificacaoHandler) markAsRead(c *gin.Context, destinatarioTipo string)
 	}
 
 	respondSuccess(c, http.StatusOK, "Notificacao marcada como lida com sucesso", item)
+}
+
+func (h *NotificacaoHandler) registerPushToken(c *gin.Context, actorType string) {
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	var input domain.PushTokenRegisterRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados de push token invalidos", err)
+		return
+	}
+
+	item, err := h.service.RegisterPushToken(c.Request.Context(), actorType, claims.UserID, input)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao cadastrar push token")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Push token cadastrado com sucesso", item)
+}
+
+func (h *NotificacaoHandler) deletePushToken(c *gin.Context, actorType string) {
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	var input domain.PushTokenDeleteRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados de push token invalidos", err)
+		return
+	}
+
+	if err := h.service.DeactivatePushToken(c.Request.Context(), actorType, claims.UserID, input); err != nil {
+		respondDomainError(c, err, "Erro interno ao remover push token")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Push token removido com sucesso", gin.H{"removed": true})
 }
 
 func (h *NotificacaoHandler) streamByRecipient(c *gin.Context, destinatarioTipo string) {
