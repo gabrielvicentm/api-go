@@ -85,9 +85,15 @@ WHERE id IN (
 
 DELETE FROM auth_refresh_tokens
 WHERE actor_id IN (
+    '70000000-0000-0000-0000-000000000001',
     '20000000-0000-0000-0000-000000000001',
     '20000000-0000-0000-0000-000000000002',
     '20000000-0000-0000-0000-000000000003'
+);
+
+DELETE FROM usuarios
+WHERE id IN (
+    '70000000-0000-0000-0000-000000000001'
 );
 
 DELETE FROM viagens
@@ -607,6 +613,24 @@ VALUES
 );
 
 -- ============================================================
+--  USUARIOS ADMINISTRATIVOS
+-- ============================================================
+
+INSERT INTO usuarios (
+    id, nome, email, senha_hash, role, ativo, ultimo_acesso
+)
+VALUES
+(
+    '70000000-0000-0000-0000-000000000001',
+    'Administrador Seed',
+    'admin.seed@teste.local',
+    crypt('Admin@123', gen_salt('bf', 10)),
+    'superadmin',
+    TRUE,
+    TIMESTAMPTZ '2026-05-11 07:45:00-03'
+);
+
+-- ============================================================
 --  MANUTENCOES
 -- ============================================================
 
@@ -830,7 +854,7 @@ VALUES
     'Cliente solicitou remarcacao da coleta.'
 );
 
-INSERT INTO viagem_paradas (id, viagem_id, descricao, latitude, longitude, registrado_em)
+INSERT INTO viagem_paradas (id, viagem_id, motivo, latitude, longitude, iniciada_em, finalizada_em)
 VALUES
 (
     '97000000-0000-0000-0000-000000000001',
@@ -838,7 +862,8 @@ VALUES
     'Parada para conferencia da amarracao da carga.',
     -23.4167000,
     -46.3833000,
-    TIMESTAMPTZ '2026-05-11 07:25:00-03'
+    TIMESTAMPTZ '2026-05-11 07:25:00-03',
+    TIMESTAMPTZ '2026-05-11 07:40:00-03'
 ),
 (
     '97000000-0000-0000-0000-000000000002',
@@ -846,7 +871,8 @@ VALUES
     'Abastecimento no posto parceiro da rodovia.',
     -23.1530000,
     -47.0610000,
-    TIMESTAMPTZ '2026-05-11 08:10:00-03'
+    TIMESTAMPTZ '2026-05-11 08:10:00-03',
+    TIMESTAMPTZ '2026-05-11 08:35:00-03'
 ),
 (
     '97000000-0000-0000-0000-000000000003',
@@ -854,7 +880,8 @@ VALUES
     'Chegada ao centro de distribuicao.',
     -15.7938890,
     -47.8827780,
-    TIMESTAMPTZ '2026-05-08 10:22:00-03'
+    TIMESTAMPTZ '2026-05-08 10:22:00-03',
+    TIMESTAMPTZ '2026-05-08 10:30:00-03'
 );
 
 INSERT INTO viagem_finalizacoes (
