@@ -243,6 +243,134 @@ func (r *AuthRepository) RevokeAllRefreshSessions(ctx context.Context, actorType
 	return err
 }
 
+func (r *AuthRepository) CreatePasswordResetSession(ctx context.Context, session domain.PasswordResetSession) error {
+	const query = `
+		INSERT INTO auth_password_reset_tokens (id, actor_id, actor_type, email, token_hash, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`
+
+	_, err := r.db.Exec(ctx, query, session.ID, session.ActorID, session.ActorType, session.Email, session.TokenHash, session.ExpiresAt)
+	return err
+}
+
+func (r *AuthRepository) FindPasswordResetSessionByTokenHash(ctx context.Context, tokenHash string) (*domain.PasswordResetSession, error) {
+	const query = `
+		SELECT id, actor_id, actor_type, email, token_hash, expires_at, used_at, revoked_at
+		FROM auth_password_reset_tokens
+		WHERE token_hash = $1
+		LIMIT 1
+	`
+
+	var session domain.PasswordResetSession
+
+	err := r.db.QueryRow(ctx, query, tokenHash).Scan(
+		&session.ID,
+		&session.ActorID,
+		&session.ActorType,
+		&session.Email,
+		&session.TokenHash,
+		&session.ExpiresAt,
+		&session.UsedAt,
+		&session.RevokedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrInvalidToken
+		}
+
+		return nil, err
+	}
+
+	return &session, nil
+}
+
+func (r *AuthRepository) RevokePasswordResetSessions(ctx context.Context, actorType, actorID string) error {
+	const query = `
+		UPDATE auth_password_reset_tokens
+		SET revoked_at = NOW(), updated_at = NOW()
+		WHERE actor_type = $1
+		  AND actor_id = $2
+		  AND revoked_at IS NULL
+		  AND used_at IS NULL
+	`
+
+	_, err := r.db.Exec(ctx, query, actorType, actorID)
+	return err
+}
+
+func (r *AuthRepository) CompletePasswordReset(ctx context.Context, sessionID, actorType, actorID, senhaHash string) error {
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	switch actorType {
+	case domain.ActorTypeAdmin:
+		const query = `
+			UPDATE usuarios
+			SET senha_hash = $2, updated_at = NOW()
+			WHERE id = $1
+		`
+
+		if _, err := tx.Exec(ctx, query, actorID, senhaHash); err != nil {
+			return err
+		}
+	case domain.ActorTypeMotorista:
+		const query = `
+			UPDATE motorista_credenciais
+			SET senha_hash = $2, deve_trocar_senha = FALSE, updated_at = NOW()
+			WHERE motorista_id = $1
+		`
+
+		if _, err := tx.Exec(ctx, query, actorID, senhaHash); err != nil {
+			return err
+		}
+	default:
+		return domain.ErrInvalidToken
+	}
+
+	const useResetQuery = `
+		UPDATE auth_password_reset_tokens
+		SET used_at = NOW(), updated_at = NOW()
+		WHERE id = $1
+		  AND used_at IS NULL
+		  AND revoked_at IS NULL
+	`
+
+	if _, err := tx.Exec(ctx, useResetQuery, sessionID); err != nil {
+		return err
+	}
+
+	const revokeOtherResetQuery = `
+		UPDATE auth_password_reset_tokens
+		SET revoked_at = NOW(), updated_at = NOW()
+		WHERE actor_type = $1
+		  AND actor_id = $2
+		  AND id <> $3
+		  AND revoked_at IS NULL
+		  AND used_at IS NULL
+	`
+
+	if _, err := tx.Exec(ctx, revokeOtherResetQuery, actorType, actorID, sessionID); err != nil {
+		return err
+	}
+
+	const revokeRefreshQuery = `
+		UPDATE auth_refresh_tokens
+		SET revoked_at = NOW(), updated_at = NOW()
+		WHERE actor_type = $1
+		  AND actor_id = $2
+		  AND revoked_at IS NULL
+	`
+
+	if _, err := tx.Exec(ctx, revokeRefreshQuery, actorType, actorID); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *AuthRepository) scanAdmin(ctx context.Context, query string, value string) (*domain.AuthenticatedActor, error) {
 	var actor domain.AuthenticatedActor
 

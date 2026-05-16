@@ -35,6 +35,19 @@ type ChangePasswordRequest struct {
 	NovaSenha  string `json:"nova_senha" binding:"required,min=6"`
 }
 
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type AdminGeneratePasswordResetTokenRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Token     string `json:"token" binding:"required,min=32"`
+	NovaSenha string `json:"nova_senha" binding:"required,min=6"`
+}
+
 type AuthenticatedActor struct {
 	ID         string
 	Nome       string
@@ -62,12 +75,28 @@ type TokenResponse struct {
 	User         AuthUserResponse `json:"user"`
 }
 
+type PasswordResetTokenResponse struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 type RefreshSession struct {
 	TokenID   string
 	ActorID   string
 	ActorType string
 	TokenHash string
 	ExpiresAt time.Time
+	RevokedAt *time.Time
+}
+
+type PasswordResetSession struct {
+	ID        string
+	ActorID   string
+	ActorType string
+	Email     string
+	TokenHash string
+	ExpiresAt time.Time
+	UsedAt    *time.Time
 	RevokedAt *time.Time
 }
 
@@ -94,6 +123,10 @@ type AuthRepository interface {
 	FindRefreshSessionByTokenID(ctx context.Context, tokenID string) (*RefreshSession, error)
 	RevokeRefreshSession(ctx context.Context, tokenID string) error
 	RevokeAllRefreshSessions(ctx context.Context, actorType, actorID string) error
+	CreatePasswordResetSession(ctx context.Context, session PasswordResetSession) error
+	FindPasswordResetSessionByTokenHash(ctx context.Context, tokenHash string) (*PasswordResetSession, error)
+	RevokePasswordResetSessions(ctx context.Context, actorType, actorID string) error
+	CompletePasswordReset(ctx context.Context, sessionID, actorType, actorID, senhaHash string) error
 }
 
 type AuthService interface {
@@ -102,5 +135,8 @@ type AuthService interface {
 	RefreshToken(ctx context.Context, input RefreshTokenRequest) (*TokenResponse, error)
 	Logout(ctx context.Context, input LogoutRequest) error
 	ChangePassword(ctx context.Context, actorType, actorID string, input ChangePasswordRequest) error
+	ForgotPassword(ctx context.Context, input ForgotPasswordRequest) error
+	GenerateAdminPasswordResetToken(ctx context.Context, input AdminGeneratePasswordResetTokenRequest) (*PasswordResetTokenResponse, error)
+	ResetPassword(ctx context.Context, input ResetPasswordRequest) error
 	GetProfile(ctx context.Context, actorType, actorID string) (*AuthUserResponse, error)
 }

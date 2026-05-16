@@ -55,7 +55,7 @@ func main() {
 	authMiddleware := middleware.AuthMiddleware(tokenManager)
 	authHandler := handler.NewAuthHandler(authService, authMiddleware)
 	dashboardHandler := handler.NewDashboardHandler()
-	adminUserHandler := handler.NewAdminUserHandler()
+	adminUserHandler := handler.NewAdminUserHandler(authService)
 	funcionarioHandler := handler.NewFuncionarioHandler(funcionarioRepo, r2Storage)
 	motoristaHandler := handler.NewMotoristaHandler(motoristaRepo, r2Storage)
 	veiculoHandler := handler.NewVeiculoHandler(veiculoRepo)

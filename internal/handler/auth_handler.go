@@ -29,6 +29,7 @@ func (h *AuthHandler) RegisterRoutes(router *gin.Engine) {
 	auth.POST("/motorista/login", h.LoginMotorista)
 	auth.POST("/refresh", h.RefreshToken)
 	auth.POST("/logout", h.Logout)
+	auth.POST("/reset-password", h.ResetPassword)
 
 	protected := auth.Group("")
 	protected.Use(h.authMiddleware)
@@ -155,10 +156,48 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	})
 }
 
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var input domain.ForgotPasswordRequest
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados para recuperacao de senha invalidos", err)
+		return
+	}
+
+	if err := h.service.ForgotPassword(c.Request.Context(), input); err != nil {
+		h.handleAuthError(c, err, "Erro interno ao solicitar recuperacao de senha")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Se o e-mail existir e estiver ativo, um token de redefinicao foi enviado.",
+	})
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var input domain.ResetPasswordRequest
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados de redefinicao de senha invalidos", err)
+		return
+	}
+
+	if err := h.service.ResetPassword(c.Request.Context(), input); err != nil {
+		h.handleAuthError(c, err, "Erro interno ao redefinir senha")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Senha redefinida com sucesso",
+	})
+}
+
 func (h *AuthHandler) handleAuthError(c *gin.Context, err error, fallbackMessage string) {
 	log.Printf("auth error on %s %s: %v", c.Request.Method, c.FullPath(), err)
 
 	switch {
+	case errors.Is(err, domain.ErrInvalidInput):
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 	case errors.Is(err, domain.ErrInvalidCredentials):
 		c.JSON(http.StatusUnauthorized, gin.H{"message": err.Error()})
 	case errors.Is(err, domain.ErrInactiveUser):

@@ -193,6 +193,10 @@ func (tm *TokenManager) HashRefreshToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func (tm *TokenManager) HashOpaqueToken(token string) string {
+	return tm.HashRefreshToken(token)
+}
+
 func (tm *TokenManager) AccessTTLSeconds() int64 {
 	return int64(tm.accessTTL.Seconds())
 }

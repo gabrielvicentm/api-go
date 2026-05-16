@@ -91,6 +91,14 @@ WHERE actor_id IN (
     '20000000-0000-0000-0000-000000000003'
 );
 
+DELETE FROM auth_password_reset_tokens
+WHERE actor_id IN (
+    '70000000-0000-0000-0000-000000000001',
+    '20000000-0000-0000-0000-000000000001',
+    '20000000-0000-0000-0000-000000000002',
+    '20000000-0000-0000-0000-000000000003'
+);
+
 DELETE FROM usuarios
 WHERE id IN (
     '70000000-0000-0000-0000-000000000001'
@@ -976,7 +984,7 @@ VALUES
 -- ============================================================
 
 INSERT INTO ocorrencias (
-    id, viagem_id, veiculo_id, motorista_id, tipo, descricao, audio_url,
+    id, viagem_id, veiculo_id, motorista_id, tipo, motivo, descricao, audio_url,
     latitude, longitude, registrado_em
 )
 VALUES
@@ -985,7 +993,8 @@ VALUES
     '80000000-0000-0000-0000-000000000001',
     '30000000-0000-0000-0000-000000000001',
     '20000000-0000-0000-0000-000000000001',
-    'atraso',
+    'outro',
+    'Atraso operacional por transito intenso',
     'Trecho com congestionamento na chegada a Campinas.',
     'https://cdn.teste.local/ocorrencias/audio-001.mp3',
     -22.9055600,
@@ -997,7 +1006,8 @@ VALUES
     '80000000-0000-0000-0000-000000000003',
     '30000000-0000-0000-0000-000000000004',
     '20000000-0000-0000-0000-000000000002',
-    'multa',
+    'outro',
+    'Autuacao de transito durante o percurso',
     'Registro de autuacao por excesso de velocidade.',
     NULL,
     -16.0200000,
@@ -1010,6 +1020,7 @@ VALUES
     '30000000-0000-0000-0000-000000000003',
     '20000000-0000-0000-0000-000000000003',
     'pane_mecanica',
+    'Falha no sistema de freio',
     'Veiculo direcionado para manutencao devido a falha no sistema de freio.',
     NULL,
     -16.6869000,

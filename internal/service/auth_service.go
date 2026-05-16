@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -15,14 +17,16 @@ import (
 var nonDigitRegex = regexp.MustCompile(`\D`)
 
 type AuthService struct {
-	repo         domain.AuthRepository
-	tokenManager *security.TokenManager
+	repo                  domain.AuthRepository
+	tokenManager          *security.TokenManager
+	passwordResetTokenTTL time.Duration
 }
 
 func NewAuthService(repo domain.AuthRepository, tokenManager *security.TokenManager) *AuthService {
 	return &AuthService{
-		repo:         repo,
-		tokenManager: tokenManager,
+		repo:                  repo,
+		tokenManager:          tokenManager,
+		passwordResetTokenTTL: parsePasswordResetTTL(),
 	}
 }
 
@@ -152,6 +156,98 @@ func (s *AuthService) ChangePassword(ctx context.Context, actorType, actorID str
 	return s.repo.RevokeAllRefreshSessions(ctx, actorType, actorID)
 }
 
+func (s *AuthService) ForgotPassword(ctx context.Context, input domain.ForgotPasswordRequest) error {
+	response, err := s.GenerateAdminPasswordResetToken(ctx, domain.AdminGeneratePasswordResetTokenRequest{
+		Email: input.Email,
+	})
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCredentials) {
+			return nil
+		}
+
+		return err
+	}
+
+	log.Printf("password reset token generated for %s: %s (expira em %s)", normalizeEmail(input.Email), response.Token, response.ExpiresAt.Format(time.RFC3339))
+	return nil
+}
+
+func (s *AuthService) GenerateAdminPasswordResetToken(ctx context.Context, input domain.AdminGeneratePasswordResetTokenRequest) (*domain.PasswordResetTokenResponse, error) {
+	actor, err := s.repo.FindAdminByEmail(ctx, normalizeEmail(input.Email))
+	if err != nil {
+		return nil, err
+	}
+
+	if !actor.Ativo {
+		return nil, domain.ErrInactiveUser
+	}
+
+	if err := s.repo.RevokePasswordResetSessions(ctx, actor.ActorType, actor.ID); err != nil {
+		return nil, err
+	}
+
+	token, err := s.tokenManager.GenerateTokenID()
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt := time.Now().UTC().Add(s.passwordResetTokenTTL)
+	if err := s.repo.CreatePasswordResetSession(ctx, domain.PasswordResetSession{
+		ID:        token,
+		ActorID:   actor.ID,
+		ActorType: actor.ActorType,
+		Email:     actor.Email,
+		TokenHash: s.tokenManager.HashOpaqueToken(token),
+		ExpiresAt: expiresAt,
+	}); err != nil {
+		return nil, err
+	}
+
+	return &domain.PasswordResetTokenResponse{
+		Token:     token,
+		ExpiresAt: expiresAt,
+	}, nil
+}
+
+func (s *AuthService) ResetPassword(ctx context.Context, input domain.ResetPasswordRequest) error {
+	session, err := s.repo.FindPasswordResetSessionByTokenHash(ctx, s.tokenManager.HashOpaqueToken(strings.TrimSpace(input.Token)))
+	if err != nil {
+		return err
+	}
+
+	if session.ActorType != domain.ActorTypeAdmin {
+		return domain.ErrInvalidToken
+	}
+
+	if session.RevokedAt != nil || session.UsedAt != nil {
+		return domain.ErrInvalidToken
+	}
+
+	if session.ExpiresAt.Before(time.Now().UTC()) {
+		return domain.ErrExpiredToken
+	}
+
+	actor, err := s.repo.FindActorByID(ctx, session.ActorType, session.ActorID)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCredentials) {
+			return domain.ErrInvalidToken
+		}
+
+		return err
+	}
+
+	if !actor.Ativo {
+		return domain.ErrInactiveUser
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(input.NovaSenha), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	return s.repo.CompletePasswordReset(ctx, session.ID, session.ActorType, session.ActorID, string(newHash))
+}
+
 func (s *AuthService) GetProfile(ctx context.Context, actorType, actorID string) (*domain.AuthUserResponse, error) {
 	actor, err := s.repo.FindActorByID(ctx, actorType, actorID)
 	if err != nil {
@@ -237,4 +333,18 @@ func normalizeEmail(email string) string {
 
 func normalizeCPF(cpf string) string {
 	return nonDigitRegex.ReplaceAllString(cpf, "")
+}
+
+func parsePasswordResetTTL() time.Duration {
+	value := strings.TrimSpace(os.Getenv("PASSWORD_RESET_TOKEN_TTL"))
+	if value == "" {
+		return 30 * time.Minute
+	}
+
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 30 * time.Minute
+	}
+
+	return duration
 }

@@ -521,6 +521,23 @@ CREATE INDEX idx_auth_refresh_tokens_actor ON auth_refresh_tokens (actor_type, a
 CREATE INDEX idx_auth_refresh_tokens_token_id ON auth_refresh_tokens (token_id);
 CREATE INDEX idx_auth_refresh_tokens_expires_at ON auth_refresh_tokens (expires_at);
 
+CREATE TABLE auth_password_reset_tokens (
+    id          TEXT        PRIMARY KEY,
+    actor_id    UUID        NOT NULL,
+    actor_type  VARCHAR(20) NOT NULL CHECK (actor_type IN ('admin', 'motorista')),
+    email       VARCHAR(150) NOT NULL,
+    token_hash  TEXT        NOT NULL UNIQUE,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    used_at     TIMESTAMPTZ,
+    revoked_at  TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_auth_password_reset_tokens_actor ON auth_password_reset_tokens (actor_type, actor_id);
+CREATE INDEX idx_auth_password_reset_tokens_hash ON auth_password_reset_tokens (token_hash);
+CREATE INDEX idx_auth_password_reset_tokens_expires_at ON auth_password_reset_tokens (expires_at);
+
 -- ============================================================
 --  VIEWS ÚTEIS
 -- ============================================================
@@ -671,6 +688,7 @@ CREATE TRIGGER trg_clientes_updated_at    BEFORE UPDATE ON clientes      FOR EAC
 CREATE TRIGGER trg_push_tokens_updated_at BEFORE UPDATE ON push_tokens   FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_usuarios_updated_at    BEFORE UPDATE ON usuarios      FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 CREATE TRIGGER trg_auth_refresh_tokens_updated_at BEFORE UPDATE ON auth_refresh_tokens FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
+CREATE TRIGGER trg_auth_password_reset_tokens_updated_at BEFORE UPDATE ON auth_password_reset_tokens FOR EACH ROW EXECUTE FUNCTION fn_updated_at();
 
 -- Ao concluir abastecimento, atualiza km_atual do veículo
 CREATE OR REPLACE FUNCTION fn_atualiza_km_veiculo()
