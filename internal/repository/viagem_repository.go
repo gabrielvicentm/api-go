@@ -775,6 +775,43 @@ func (r *ViagemRepository) ListFinalizations(ctx context.Context, viagemID strin
 	return items, rows.Err()
 }
 
+func (r *ViagemRepository) GetFinalization(ctx context.Context, viagemID, finalizacaoID string) (*domain.ViagemFinalizacaoItem, error) {
+	const query = `
+		SELECT
+			id,
+			viagem_id,
+			km_final::text,
+			status::text,
+			COALESCE(observacao_motorista, ''),
+			COALESCE(observacao_admin, ''),
+			solicitado_em,
+			respondido_em
+		FROM viagem_finalizacoes
+		WHERE viagem_id = $1
+		AND id = $2
+		LIMIT 1
+	`
+
+	var item domain.ViagemFinalizacaoItem
+	if err := r.db.QueryRow(ctx, query, strings.TrimSpace(viagemID), strings.TrimSpace(finalizacaoID)).Scan(
+		&item.ID,
+		&item.ViagemID,
+		&item.KMFinal,
+		&item.Status,
+		&item.ObservacaoMotorista,
+		&item.ObservacaoAdmin,
+		&item.SolicitadoEm,
+		&item.RespondidoEm,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, mapDatabaseError(err)
+	}
+
+	return &item, nil
+}
+
 func (r *ViagemRepository) Create(ctx context.Context, input domain.ViagemCreateRequest) (*domain.ViagemDetail, error) {
 	dataSaida, err := parseRequiredTimestamp(input.DataSaida)
 	if err != nil {
@@ -1006,6 +1043,184 @@ func (r *ViagemRepository) FinalizeByAdmin(ctx context.Context, id string, input
 	}
 
 	return r.GetByID(ctx, id)
+}
+
+func (r *ViagemRepository) ApproveFinalization(ctx context.Context, viagemID, finalizacaoID, observacaoAdmin string) (*domain.ViagemFinalizacaoItem, *domain.ViagemDetail, error) {
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	const currentQuery = `
+		SELECT
+			vf.km_final::text,
+			vf.status::text,
+			v.veiculo_id::text,
+			v.km_inicial::text,
+			v.status::text
+		FROM viagem_finalizacoes vf
+		JOIN viagens v ON v.id = vf.viagem_id
+		WHERE vf.viagem_id = $1
+		AND vf.id = $2
+		FOR UPDATE OF vf, v
+	`
+
+	var kmFinal string
+	var finalizationStatus string
+	var veiculoID string
+	var kmInicialRaw string
+	var tripStatus string
+	if err := tx.QueryRow(ctx, currentQuery, strings.TrimSpace(viagemID), strings.TrimSpace(finalizacaoID)).Scan(
+		&kmFinal,
+		&finalizationStatus,
+		&veiculoID,
+		&kmInicialRaw,
+		&tripStatus,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, domain.ErrNotFound
+		}
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	if finalizationStatus != "pendente" || tripStatus == "cancelada" || tripStatus == "concluida" {
+		return nil, nil, domain.ErrInvalidInput
+	}
+
+	kmFinalValue, err := strconv.ParseFloat(strings.TrimSpace(kmFinal), 64)
+	if err != nil || math.IsNaN(kmFinalValue) || math.IsInf(kmFinalValue, 0) {
+		return nil, nil, domain.ErrInvalidInput
+	}
+
+	kmInicialValue, err := strconv.ParseFloat(strings.TrimSpace(kmInicialRaw), 64)
+	if err != nil || kmFinalValue < kmInicialValue {
+		return nil, nil, domain.ErrInvalidInput
+	}
+
+	const updateTripQuery = `
+		UPDATE viagens
+		SET
+			km_final = $2::numeric,
+			data_chegada_real = NOW(),
+			status = 'concluida',
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateTripQuery, strings.TrimSpace(viagemID), kmFinal); err != nil {
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	const updateVehicleQuery = `
+		UPDATE veiculos
+		SET
+			km_atual = $2::numeric,
+			status = 'disponivel',
+			updated_at = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateVehicleQuery, veiculoID, kmFinal); err != nil {
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	const updateFinalizationQuery = `
+		UPDATE viagem_finalizacoes
+		SET
+			status = 'aprovada',
+			observacao_admin = NULLIF($3, ''),
+			respondido_em = NOW()
+		WHERE viagem_id = $1
+		AND id = $2
+	`
+	if _, err := tx.Exec(
+		ctx,
+		updateFinalizationQuery,
+		strings.TrimSpace(viagemID),
+		strings.TrimSpace(finalizacaoID),
+		strings.TrimSpace(observacaoAdmin),
+	); err != nil {
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+
+	finalization, err := r.GetFinalization(ctx, viagemID, finalizacaoID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	trip, err := r.GetByID(ctx, viagemID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return finalization, trip, nil
+}
+
+func (r *ViagemRepository) RejectFinalization(ctx context.Context, viagemID, finalizacaoID, observacaoAdmin string) (*domain.ViagemFinalizacaoItem, *domain.ViagemDetail, error) {
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	const currentQuery = `
+		SELECT vf.status::text
+		FROM viagem_finalizacoes vf
+		JOIN viagens v ON v.id = vf.viagem_id
+		WHERE vf.viagem_id = $1
+		AND vf.id = $2
+		FOR UPDATE OF vf, v
+	`
+
+	var finalizationStatus string
+	if err := tx.QueryRow(ctx, currentQuery, strings.TrimSpace(viagemID), strings.TrimSpace(finalizacaoID)).Scan(&finalizationStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, domain.ErrNotFound
+		}
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	if finalizationStatus != "pendente" {
+		return nil, nil, domain.ErrInvalidInput
+	}
+
+	const updateFinalizationQuery = `
+		UPDATE viagem_finalizacoes
+		SET
+			status = 'rejeitada',
+			observacao_admin = NULLIF($3, ''),
+			respondido_em = NOW()
+		WHERE viagem_id = $1
+		AND id = $2
+	`
+	if _, err := tx.Exec(
+		ctx,
+		updateFinalizationQuery,
+		strings.TrimSpace(viagemID),
+		strings.TrimSpace(finalizacaoID),
+		strings.TrimSpace(observacaoAdmin),
+	); err != nil {
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+
+	finalization, err := r.GetFinalization(ctx, viagemID, finalizacaoID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	trip, err := r.GetByID(ctx, viagemID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return finalization, trip, nil
 }
 
 func (r *ViagemRepository) Update(ctx context.Context, id string, input domain.ViagemUpdateRequest) (*domain.ViagemDetail, error) {

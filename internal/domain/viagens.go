@@ -60,6 +60,10 @@ type ViagemFinalizacaoAdminRequest struct {
 	ObservacaoAdmin string `json:"observacao_admin"`
 }
 
+type ViagemFinalizacaoAdminDecisionRequest struct {
+	ObservacaoAdmin string `json:"observacao_admin"`
+}
+
 type ViagemDetail struct {
 	ID                  string     `json:"id"`
 	MotoristaID         string     `json:"motorista_id"`
@@ -149,6 +153,12 @@ type ViagemFinalizacaoItem struct {
 	ObservacaoAdmin     string     `json:"observacao_admin,omitempty"`
 	SolicitadoEm        *time.Time `json:"solicitado_em,omitempty"`
 	RespondidoEm        *time.Time `json:"respondido_em,omitempty"`
+}
+
+type ViagemFinalizacaoAdminDecisionResponse struct {
+	Viagem      *ViagemDetail          `json:"viagem,omitempty"`
+	Finalizacao *ViagemFinalizacaoItem `json:"finalizacao"`
+	Notificacao *NotificacaoDetail     `json:"notificacao,omitempty"`
 }
 
 type ViagemHistoricoCreateInput struct {

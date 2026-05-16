@@ -315,11 +315,51 @@ func (h *ViagemHandler) FinalizationsListAdmin(c *gin.Context) {
 }
 
 func (h *ViagemHandler) ApproveFinalization(c *gin.Context) {
-	respondProtected(c, "admin.viagens.finalizations.approve", "Aprovacao protegida de finalizacao de viagem")
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	var input domain.ViagemFinalizacaoAdminDecisionRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		if err != io.EOF {
+			respondError(c, http.StatusBadRequest, "Dados de aprovacao invalidos", err)
+			return
+		}
+	}
+
+	item, err := h.service.ApproveFinalization(c.Request.Context(), c.Param("id"), c.Param("finalizacaoId"), input, claims.ActorType, claims.UserID)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao aprovar finalizacao da viagem")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Finalizacao aprovada com sucesso", item)
 }
 
 func (h *ViagemHandler) RejectFinalization(c *gin.Context) {
-	respondProtected(c, "admin.viagens.finalizations.reject", "Rejeicao protegida de finalizacao de viagem")
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	var input domain.ViagemFinalizacaoAdminDecisionRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		if err != io.EOF {
+			respondError(c, http.StatusBadRequest, "Dados de rejeicao invalidos", err)
+			return
+		}
+	}
+
+	item, err := h.service.RejectFinalization(c.Request.Context(), c.Param("id"), c.Param("finalizacaoId"), input, claims.ActorType, claims.UserID)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao rejeitar finalizacao da viagem")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Finalizacao rejeitada com sucesso", item)
 }
 
 func (h *ViagemHandler) ListMotorista(c *gin.Context) {

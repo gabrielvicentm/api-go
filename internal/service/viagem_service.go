@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -14,12 +15,23 @@ import (
 type ViagemService struct {
 	repo            *repository.ViagemRepository
 	documentStorage ViagemDocumentStorage
+	notificacoes    ViagemNotificacaoCreator
 }
 
-func NewViagemService(repo *repository.ViagemRepository, documentStorage ViagemDocumentStorage) *ViagemService {
+type ViagemNotificacaoCreator interface {
+	Create(ctx context.Context, input domain.NotificacaoCreateRequest) (*domain.NotificacaoDetail, error)
+}
+
+func NewViagemService(repo *repository.ViagemRepository, documentStorage ViagemDocumentStorage, notificacoes ...ViagemNotificacaoCreator) *ViagemService {
+	var notificacaoService ViagemNotificacaoCreator
+	if len(notificacoes) > 0 {
+		notificacaoService = notificacoes[0]
+	}
+
 	return &ViagemService{
 		repo:            repo,
 		documentStorage: documentStorage,
+		notificacoes:    notificacaoService,
 	}
 }
 
@@ -129,6 +141,101 @@ func (s *ViagemService) FinalizeByAdmin(ctx context.Context, id string, input do
 	}
 
 	return updated, nil
+}
+
+func (s *ViagemService) ApproveFinalization(ctx context.Context, viagemID, finalizacaoID string, input domain.ViagemFinalizacaoAdminDecisionRequest, actorType, actorID string) (*domain.ViagemFinalizacaoAdminDecisionResponse, error) {
+	before, err := s.repo.GetByID(ctx, viagemID)
+	if err != nil {
+		return nil, err
+	}
+
+	finalization, trip, err := s.repo.ApproveFinalization(ctx, viagemID, finalizacaoID, input.ObservacaoAdmin)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, change := range collectViagemChanges(before, trip) {
+		if err := s.repo.CreateHistory(ctx, domain.ViagemHistoricoCreateInput{
+			ViagemID:      viagemID,
+			UsuarioTipo:   actorType,
+			UsuarioID:     actorID,
+			CampoAlterado: change.Field,
+			ValorAnterior: change.Before,
+			ValorNovo:     change.After,
+			Descricao:     describeViagemChange(change),
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := s.repo.CreateHistory(ctx, domain.ViagemHistoricoCreateInput{
+		ViagemID:    viagemID,
+		UsuarioTipo: actorType,
+		UsuarioID:   actorID,
+		Descricao:   "Finalizacao aprovada pelo administrativo",
+	}); err != nil {
+		return nil, err
+	}
+
+	notificacao := s.notifyMotoristaFinalizationDecision(ctx, trip, finalization, actorID, "aprovada")
+	return &domain.ViagemFinalizacaoAdminDecisionResponse{
+		Viagem:      trip,
+		Finalizacao: finalization,
+		Notificacao: notificacao,
+	}, nil
+}
+
+func (s *ViagemService) RejectFinalization(ctx context.Context, viagemID, finalizacaoID string, input domain.ViagemFinalizacaoAdminDecisionRequest, actorType, actorID string) (*domain.ViagemFinalizacaoAdminDecisionResponse, error) {
+	finalization, trip, err := s.repo.RejectFinalization(ctx, viagemID, finalizacaoID, input.ObservacaoAdmin)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.CreateHistory(ctx, domain.ViagemHistoricoCreateInput{
+		ViagemID:    viagemID,
+		UsuarioTipo: actorType,
+		UsuarioID:   actorID,
+		Descricao:   "Finalizacao rejeitada pelo administrativo",
+	}); err != nil {
+		return nil, err
+	}
+
+	notificacao := s.notifyMotoristaFinalizationDecision(ctx, trip, finalization, actorID, "rejeitada")
+	return &domain.ViagemFinalizacaoAdminDecisionResponse{
+		Viagem:      trip,
+		Finalizacao: finalization,
+		Notificacao: notificacao,
+	}, nil
+}
+
+func (s *ViagemService) notifyMotoristaFinalizationDecision(ctx context.Context, trip *domain.ViagemDetail, finalization *domain.ViagemFinalizacaoItem, actorID, status string) *domain.NotificacaoDetail {
+	if s.notificacoes == nil || trip == nil || finalization == nil {
+		return nil
+	}
+
+	title := "Finalizacao de viagem aprovada"
+	message := fmt.Sprintf("Sua solicitacao de finalizacao da viagem %s foi aprovada pelo administrativo.", trip.ID)
+	if status == "rejeitada" {
+		title = "Finalizacao de viagem rejeitada"
+		message = fmt.Sprintf("Sua solicitacao de finalizacao da viagem %s foi rejeitada pelo administrativo.", trip.ID)
+	}
+
+	item, err := s.notificacoes.Create(ctx, domain.NotificacaoCreateRequest{
+		DestinatarioTipo: domain.DestinatarioTipoMotorista,
+		DestinatarioID:   trip.MotoristaID,
+		OrigemTipo:       domain.OrigemTipoSistema,
+		OrigemID:         actorID,
+		Titulo:           title,
+		Mensagem:         message,
+		ReferenciaTipo:   "viagem_finalizacao",
+		ReferenciaID:     finalization.ID,
+	})
+	if err != nil {
+		log.Printf("erro ao notificar motorista sobre finalizacao %s: %v", finalization.ID, err)
+		return nil
+	}
+
+	return item
 }
 
 func validateViagemStatus(status string) error {
