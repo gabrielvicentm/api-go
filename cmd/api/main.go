@@ -67,6 +67,7 @@ func main() {
 	notificacaoHandler := handler.NewNotificacaoHandler(notificacaoService)
 	manutencaoHandler := handler.NewManutencaoHandler(manutencaoRepo)
 	relatorioHandler := handler.NewRelatorioHandler()
+	historicoAlteracoesHandler := handler.NewHistoricoAlteracoesHandler(viagemRepo)
 
 	r := gin.Default()
 	r.Use(middleware.CORSMiddleware())
@@ -97,6 +98,7 @@ func main() {
 	notificacaoHandler.RegisterAdminRoutes(admin)
 	manutencaoHandler.RegisterAdminRoutes(admin)
 	relatorioHandler.RegisterAdminRoutes(admin)
+	historicoAlteracoesHandler.RegisterAdminRoutes(admin)
 
 	motorista := r.Group("/motorista")
 	motorista.Use(

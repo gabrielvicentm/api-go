@@ -183,6 +183,137 @@ func (r *ViagemRepository) List(ctx context.Context, filter domain.ViagemListFil
 	return items, total, rows.Err()
 }
 
+func (r *ViagemRepository) ListChangeHistory(ctx context.Context, filter domain.HistoricoAlteracaoListFilter) ([]domain.HistoricoAlteracaoItem, int64, error) {
+	const actionCase = `
+		CASE
+			WHEN vh.descricao = 'Viagem criada' THEN 'create'
+			WHEN vh.campo_alterado = 'status' OR vh.descricao ILIKE '%status%' OR vh.descricao ILIKE '%finalizada%' THEN 'status'
+			WHEN COALESCE(vh.campo_alterado, '') <> '' THEN 'update'
+			ELSE 'evento'
+		END
+	`
+
+	const baseFrom = `
+		FROM viagem_historico vh
+		JOIN viagens v ON v.id = vh.viagem_id
+		JOIN motoristas m ON m.id = v.motorista_id
+		JOIN funcionarios fm ON fm.id = m.id
+		JOIN veiculos ve ON ve.id = v.veiculo_id
+		LEFT JOIN clientes c ON c.id = v.cliente_id
+		LEFT JOIN usuarios ua ON vh.usuario_tipo = 'admin' AND ua.id = vh.usuario_id
+		LEFT JOIN funcionarios fu ON vh.usuario_tipo = 'motorista' AND fu.id = vh.usuario_id
+		WHERE (
+			$1 = ''
+			OR COALESCE(vh.descricao, '') ILIKE '%' || $1 || '%'
+			OR COALESCE(vh.campo_alterado, '') ILIKE '%' || $1 || '%'
+			OR vh.viagem_id::text ILIKE '%' || $1 || '%'
+			OR fm.nome ILIKE '%' || $1 || '%'
+			OR ve.placa ILIKE '%' || $1 || '%'
+			OR ve.modelo ILIKE '%' || $1 || '%'
+			OR COALESCE(c.nome, '') ILIKE '%' || $1 || '%'
+		)
+		AND ($2 = '' OR vh.viagem_id::text = $2)
+		AND ($3 = '' OR ` + actionCase + ` = $3)
+		AND (
+			$4 = ''
+			OR COALESCE(ua.nome, fu.nome, '') ILIKE '%' || $4 || '%'
+			OR COALESCE(ua.email, '') ILIKE '%' || $4 || '%'
+			OR vh.usuario_id::text ILIKE '%' || $4 || '%'
+		)
+		AND ($5 = '' OR vh.created_at >= $5::timestamptz)
+		AND ($6 = '' OR vh.created_at < ($6::date + INTERVAL '1 day'))
+	`
+
+	countQuery := `SELECT COUNT(*) ` + baseFrom
+
+	var total int64
+	if err := r.db.QueryRow(
+		ctx,
+		countQuery,
+		filter.Search,
+		filter.EntidadeID,
+		filter.Acao,
+		filter.Usuario,
+		filter.DataInicio,
+		filter.DataFim,
+	).Scan(&total); err != nil {
+		return nil, 0, mapDatabaseError(err)
+	}
+
+	query := `
+		SELECT
+			vh.id,
+			vh.viagem_id::text,
+			` + actionCase + ` AS acao,
+			vh.usuario_id::text,
+			COALESCE(ua.nome, fu.nome, ''),
+			vh.usuario_tipo,
+			COALESCE(vh.descricao, ''),
+			COALESCE(vh.campo_alterado, ''),
+			COALESCE(vh.valor_anterior, ''),
+			COALESCE(vh.valor_novo, ''),
+			vh.created_at
+	` + baseFrom + `
+		ORDER BY vh.created_at DESC
+		LIMIT $7 OFFSET $8
+	`
+
+	rows, err := r.db.Query(
+		ctx,
+		query,
+		filter.Search,
+		filter.EntidadeID,
+		filter.Acao,
+		filter.Usuario,
+		filter.DataInicio,
+		filter.DataFim,
+		filter.Limit,
+		(filter.Page-1)*filter.Limit,
+	)
+	if err != nil {
+		return nil, 0, mapDatabaseError(err)
+	}
+	defer rows.Close()
+
+	items := make([]domain.HistoricoAlteracaoItem, 0)
+	for rows.Next() {
+		var item domain.HistoricoAlteracaoItem
+		var campoAlterado string
+		var valorAnterior string
+		var valorNovo string
+		if err := rows.Scan(
+			&item.ID,
+			&item.EntidadeID,
+			&item.Acao,
+			&item.UsuarioID,
+			&item.UsuarioNome,
+			&item.Origem,
+			&item.Resumo,
+			&campoAlterado,
+			&valorAnterior,
+			&valorNovo,
+			&item.CriadoEm,
+		); err != nil {
+			return nil, 0, err
+		}
+
+		item.Entidade = "viagem"
+		if campoAlterado != "" || valorAnterior != "" || valorNovo != "" {
+			item.Alteracoes = []domain.HistoricoAlteracaoCampo{
+				{
+					Campo:         campoAlterado,
+					ValorAnterior: valorAnterior,
+					ValorNovo:     valorNovo,
+				},
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}
+
 func (r *ViagemRepository) GetByID(ctx context.Context, id string) (*domain.ViagemDetail, error) {
 	const query = `
 		SELECT
