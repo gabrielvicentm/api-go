@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 --  TIPOS ENUMERADOS
 -- ============================================================
 
-CREATE TYPE status_viagem     AS ENUM ('pendente', 'em_andamento', 'concluida', 'cancelada');
+CREATE TYPE status_viagem     AS ENUM ('pendente', 'em_andamento', 'parada', 'concluida', 'cancelada');
 CREATE TYPE status_veiculo    AS ENUM ('disponivel', 'em_uso', 'manutencao', 'inativo');
 CREATE TYPE status_motorista  AS ENUM ('ativo', 'inativo', 'ferias', 'afastado');
 CREATE TYPE status_funcionario AS ENUM ('ativo', 'inativo', 'ferias', 'afastado', 'desligado');
@@ -295,15 +295,17 @@ CREATE INDEX idx_viagem_historico_viagem ON viagem_historico (viagem_id);
 -- ============================================================
 
 CREATE TABLE viagem_paradas (
-    id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
-    viagem_id   UUID        NOT NULL REFERENCES viagens (id) ON DELETE CASCADE,
-    descricao   TEXT        NOT NULL,
-    latitude    NUMERIC(10,7),
-    longitude   NUMERIC(10,7),
-    registrado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    viagem_id       UUID        NOT NULL REFERENCES viagens (id) ON DELETE CASCADE,
+    motivo          TEXT        NOT NULL,
+    latitude        NUMERIC(10,7),
+    longitude       NUMERIC(10,7),
+    iniciada_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finalizada_em   TIMESTAMPTZ
 );
 
 CREATE INDEX idx_viagem_paradas_viagem ON viagem_paradas (viagem_id);
+CREATE INDEX idx_viagem_paradas_aberta ON viagem_paradas (viagem_id) WHERE finalizada_em IS NULL;
 
 -- ============================================================
 --  SOLICITAÇÕES DE FINALIZAÇÃO DE VIAGEM

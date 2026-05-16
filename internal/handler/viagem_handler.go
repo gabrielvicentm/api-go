@@ -48,6 +48,8 @@ func (h *ViagemHandler) RegisterMotoristaRoutes(group *gin.RouterGroup) {
 	group.GET("/viagens/atual", h.Current)
 	group.GET("/viagens/historico", h.HistoryMotorista)
 	group.POST("/viagens/paradas", h.CreateStop)
+	group.POST("/viagens/paradas/iniciar", h.CreateStop)
+	group.POST("/viagens/paradas/finalizar", h.FinishStop)
 	group.POST("/viagens/finalizacao", h.RequestFinalization)
 }
 
@@ -315,7 +317,29 @@ func (h *ViagemHandler) ListMotorista(c *gin.Context) {
 }
 
 func (h *ViagemHandler) Current(c *gin.Context) {
-	respondProtected(c, "motorista.viagens.atual", "Consulta protegida da viagem atual do motorista")
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	items, _, err := h.repo.List(c.Request.Context(), domain.ViagemListFilter{
+		MotoristaID:      claims.UserID,
+		ExcludeConcluded: true,
+		Page:             1,
+		Limit:            1,
+	})
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao buscar viagem atual")
+		return
+	}
+
+	if len(items) == 0 {
+		respondDomainError(c, domain.ErrNotFound, "Viagem atual nao encontrada")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Viagem atual carregada com sucesso", items[0])
 }
 
 func (h *ViagemHandler) HistoryMotorista(c *gin.Context) {
@@ -323,7 +347,41 @@ func (h *ViagemHandler) HistoryMotorista(c *gin.Context) {
 }
 
 func (h *ViagemHandler) CreateStop(c *gin.Context) {
-	respondProtected(c, "motorista.viagens.paradas.create", "Registro protegido de parada da viagem")
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	var input domain.ViagemParadaStartRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondError(c, http.StatusBadRequest, "Dados da parada invalidos", err)
+		return
+	}
+
+	item, err := h.service.StartStop(c.Request.Context(), claims.UserID, input, claims.ActorType, claims.UserID)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao registrar parada da viagem")
+		return
+	}
+
+	respondSuccess(c, http.StatusCreated, "Parada registrada com sucesso", item)
+}
+
+func (h *ViagemHandler) FinishStop(c *gin.Context) {
+	claims, ok := middleware.GetAccessClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"message": domain.ErrInvalidToken.Error()})
+		return
+	}
+
+	item, err := h.service.FinishStop(c.Request.Context(), claims.UserID, claims.ActorType, claims.UserID)
+	if err != nil {
+		respondDomainError(c, err, "Erro interno ao finalizar parada da viagem")
+		return
+	}
+
+	respondSuccess(c, http.StatusOK, "Parada finalizada com sucesso", item)
 }
 
 func (h *ViagemHandler) RequestFinalization(c *gin.Context) {

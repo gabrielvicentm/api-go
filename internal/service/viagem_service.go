@@ -138,11 +138,91 @@ func validateViagemStatus(status string) error {
 	}
 
 	switch status {
-	case "pendente", "em_andamento", "concluida", "cancelada":
+	case "pendente", "em_andamento", "parada", "concluida", "cancelada":
 		return nil
 	default:
 		return fmt.Errorf("status de viagem invalido: %w", domain.ErrInvalidInput)
 	}
+}
+
+func (s *ViagemService) StartStop(ctx context.Context, motoristaID string, input domain.ViagemParadaStartRequest, actorType, actorID string) (*domain.ViagemParadaStateResponse, error) {
+	input.Motivo = strings.TrimSpace(input.Motivo)
+	if input.Motivo == "" {
+		return nil, fmt.Errorf("motivo da parada obrigatorio: %w", domain.ErrInvalidInput)
+	}
+
+	trip, err := s.currentMotoristaTrip(ctx, motoristaID)
+	if err != nil {
+		return nil, err
+	}
+
+	stop, updatedTrip, err := s.repo.StartStop(ctx, trip.ID, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.CreateHistory(ctx, domain.ViagemHistoricoCreateInput{
+		ViagemID:      updatedTrip.ID,
+		UsuarioTipo:   actorType,
+		UsuarioID:     actorID,
+		CampoAlterado: "status",
+		ValorAnterior: trip.Status,
+		ValorNovo:     updatedTrip.Status,
+		Descricao:     fmt.Sprintf("Motorista registrou parada. Motivo: %s", stop.Motivo),
+	}); err != nil {
+		return nil, err
+	}
+
+	return &domain.ViagemParadaStateResponse{
+		Viagem: updatedTrip,
+		Parada: stop,
+	}, nil
+}
+
+func (s *ViagemService) FinishStop(ctx context.Context, motoristaID string, actorType, actorID string) (*domain.ViagemParadaStateResponse, error) {
+	trip, err := s.currentMotoristaTrip(ctx, motoristaID)
+	if err != nil {
+		return nil, err
+	}
+
+	stop, updatedTrip, err := s.repo.FinishOpenStop(ctx, trip.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.CreateHistory(ctx, domain.ViagemHistoricoCreateInput{
+		ViagemID:      updatedTrip.ID,
+		UsuarioTipo:   actorType,
+		UsuarioID:     actorID,
+		CampoAlterado: "status",
+		ValorAnterior: trip.Status,
+		ValorNovo:     updatedTrip.Status,
+		Descricao:     "Motorista voltou para a estrada",
+	}); err != nil {
+		return nil, err
+	}
+
+	return &domain.ViagemParadaStateResponse{
+		Viagem: updatedTrip,
+		Parada: stop,
+	}, nil
+}
+
+func (s *ViagemService) currentMotoristaTrip(ctx context.Context, motoristaID string) (*domain.ViagemDetail, error) {
+	items, _, err := s.repo.List(ctx, domain.ViagemListFilter{
+		MotoristaID:      motoristaID,
+		ExcludeConcluded: true,
+		Page:             1,
+		Limit:            1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, domain.ErrNotFound
+	}
+
+	return &items[0], nil
 }
 
 func (s *ViagemService) UploadDocument(ctx context.Context, viagemID string, body io.Reader, filename, documentType, contentType string, size int64, actorType, actorID string) (*domain.ViagemDocumentoItem, error) {

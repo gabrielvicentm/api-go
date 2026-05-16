@@ -388,13 +388,14 @@ func (r *ViagemRepository) ListStops(ctx context.Context, viagemID string) ([]do
 		SELECT
 			id,
 			viagem_id,
-			descricao,
+			motivo,
 			COALESCE(latitude::text, ''),
 			COALESCE(longitude::text, ''),
-			registrado_em
+			iniciada_em,
+			finalizada_em
 		FROM viagem_paradas
 		WHERE viagem_id = $1
-		ORDER BY registrado_em DESC
+		ORDER BY iniciada_em DESC
 	`
 
 	rows, err := r.db.Query(ctx, query, viagemID)
@@ -409,10 +410,11 @@ func (r *ViagemRepository) ListStops(ctx context.Context, viagemID string) ([]do
 		if err := rows.Scan(
 			&item.ID,
 			&item.ViagemID,
-			&item.Descricao,
+			&item.Motivo,
 			&item.Latitude,
 			&item.Longitude,
-			&item.RegistradoEm,
+			&item.IniciadaEm,
+			&item.FinalizadaEm,
 		); err != nil {
 			return nil, err
 		}
@@ -420,6 +422,183 @@ func (r *ViagemRepository) ListStops(ctx context.Context, viagemID string) ([]do
 	}
 
 	return items, rows.Err()
+}
+
+func (r *ViagemRepository) StartStop(ctx context.Context, viagemID string, input domain.ViagemParadaStartRequest) (*domain.ViagemParadaItem, *domain.ViagemDetail, error) {
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	const currentTripQuery = `
+		SELECT status::text
+		FROM viagens
+		WHERE id = $1
+		FOR UPDATE
+	`
+
+	var status string
+	if err := tx.QueryRow(ctx, currentTripQuery, strings.TrimSpace(viagemID)).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, domain.ErrNotFound
+		}
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	if status != "em_andamento" {
+		return nil, nil, domain.ErrInvalidInput
+	}
+
+	const openStopQuery = `
+		SELECT EXISTS (
+			SELECT 1
+			FROM viagem_paradas
+			WHERE viagem_id = $1
+			AND finalizada_em IS NULL
+		)
+	`
+
+	var hasOpenStop bool
+	if err := tx.QueryRow(ctx, openStopQuery, strings.TrimSpace(viagemID)).Scan(&hasOpenStop); err != nil {
+		return nil, nil, mapDatabaseError(err)
+	}
+	if hasOpenStop {
+		return nil, nil, domain.ErrConflict
+	}
+
+	const insertStopQuery = `
+		INSERT INTO viagem_paradas (
+			viagem_id,
+			motivo,
+			latitude,
+			longitude
+		)
+		VALUES (
+			$1,
+			$2,
+			NULLIF($3, '')::numeric,
+			NULLIF($4, '')::numeric
+		)
+		RETURNING id, viagem_id, motivo, COALESCE(latitude::text, ''), COALESCE(longitude::text, ''), iniciada_em, finalizada_em
+	`
+
+	var item domain.ViagemParadaItem
+	if err := tx.QueryRow(
+		ctx,
+		insertStopQuery,
+		strings.TrimSpace(viagemID),
+		strings.TrimSpace(input.Motivo),
+		strings.TrimSpace(input.Latitude),
+		strings.TrimSpace(input.Longitude),
+	).Scan(
+		&item.ID,
+		&item.ViagemID,
+		&item.Motivo,
+		&item.Latitude,
+		&item.Longitude,
+		&item.IniciadaEm,
+		&item.FinalizadaEm,
+	); err != nil {
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	const updateTripQuery = `
+		UPDATE viagens
+		SET status = 'parada', updated_at = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateTripQuery, strings.TrimSpace(viagemID)); err != nil {
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+
+	trip, err := r.GetByID(ctx, viagemID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &item, trip, nil
+}
+
+func (r *ViagemRepository) FinishOpenStop(ctx context.Context, viagemID string) (*domain.ViagemParadaItem, *domain.ViagemDetail, error) {
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	const currentTripQuery = `
+		SELECT status::text
+		FROM viagens
+		WHERE id = $1
+		FOR UPDATE
+	`
+
+	var status string
+	if err := tx.QueryRow(ctx, currentTripQuery, strings.TrimSpace(viagemID)).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, domain.ErrNotFound
+		}
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	if status != "parada" {
+		return nil, nil, domain.ErrInvalidInput
+	}
+
+	const updateStopQuery = `
+		UPDATE viagem_paradas
+		SET finalizada_em = NOW()
+		WHERE id = (
+			SELECT id
+			FROM viagem_paradas
+			WHERE viagem_id = $1
+			AND finalizada_em IS NULL
+			ORDER BY iniciada_em DESC
+			LIMIT 1
+		)
+		RETURNING id, viagem_id, motivo, COALESCE(latitude::text, ''), COALESCE(longitude::text, ''), iniciada_em, finalizada_em
+	`
+
+	var item domain.ViagemParadaItem
+	if err := tx.QueryRow(ctx, updateStopQuery, strings.TrimSpace(viagemID)).Scan(
+		&item.ID,
+		&item.ViagemID,
+		&item.Motivo,
+		&item.Latitude,
+		&item.Longitude,
+		&item.IniciadaEm,
+		&item.FinalizadaEm,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, domain.ErrNotFound
+		}
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	const updateTripQuery = `
+		UPDATE viagens
+		SET status = 'em_andamento', updated_at = NOW()
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateTripQuery, strings.TrimSpace(viagemID)); err != nil {
+		return nil, nil, mapDatabaseError(err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+
+	trip, err := r.GetByID(ctx, viagemID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &item, trip, nil
 }
 
 func (r *ViagemRepository) ListFinalizations(ctx context.Context, viagemID string) ([]domain.ViagemFinalizacaoItem, error) {
@@ -905,15 +1084,29 @@ func parseOptionalTimestamp(value string) (*time.Time, error) {
 		return nil, nil
 	}
 
-	layouts := []string{
+	layoutsWithTimezone := []string{
 		time.RFC3339Nano,
 		time.RFC3339,
+	}
+
+	for _, layout := range layoutsWithTimezone {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return &parsed, nil
+		}
+	}
+
+	location, err := time.LoadLocation("America/Sao_Paulo")
+	if err != nil {
+		location = time.FixedZone("America/Sao_Paulo", -3*60*60)
+	}
+
+	localLayouts := []string{
 		"2006-01-02 15:04:05",
 		"2006-01-02T15:04",
 	}
 
-	for _, layout := range layouts {
-		if parsed, err := time.Parse(layout, value); err == nil {
+	for _, layout := range localLayouts {
+		if parsed, err := time.ParseInLocation(layout, value, location); err == nil {
 			return &parsed, nil
 		}
 	}

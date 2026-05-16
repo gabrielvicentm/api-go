@@ -122,10 +122,22 @@ type ViagemHistoricoItem struct {
 type ViagemParadaItem struct {
 	ID           string     `json:"id"`
 	ViagemID     string     `json:"viagem_id"`
-	Descricao    string     `json:"descricao"`
+	Motivo       string     `json:"motivo"`
 	Latitude     string     `json:"latitude,omitempty"`
 	Longitude    string     `json:"longitude,omitempty"`
-	RegistradoEm *time.Time `json:"registrado_em,omitempty"`
+	IniciadaEm   *time.Time `json:"iniciada_em,omitempty"`
+	FinalizadaEm *time.Time `json:"finalizada_em,omitempty"`
+}
+
+type ViagemParadaStartRequest struct {
+	Motivo    string `json:"motivo" binding:"required,min=2"`
+	Latitude  string `json:"latitude"`
+	Longitude string `json:"longitude"`
+}
+
+type ViagemParadaStateResponse struct {
+	Viagem *ViagemDetail     `json:"viagem"`
+	Parada *ViagemParadaItem `json:"parada"`
 }
 
 type ViagemFinalizacaoItem struct {
