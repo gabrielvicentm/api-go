@@ -22,8 +22,8 @@ CREATE TYPE tipo_contrato_funcionario AS ENUM ('clt', 'pj', 'temporario', 'estag
 CREATE TYPE tipo_pagamento_funcionario AS ENUM ('mensal', 'quinzenal', 'semanal', 'diario', 'hora');
 CREATE TYPE tipo_conta_bancaria_funcionario AS ENUM ('corrente', 'poupanca', 'salario', 'pix');
 CREATE TYPE tipo_ocorrencia   AS ENUM (
-    'acidente', 'multa', 'pane_mecanica', 'pane_eletrica',
-    'furto', 'avaria_carga', 'atraso', 'outro'
+    'acidente', 'pane_mecanica', 'pane_eletrica',
+    'furto', 'avaria_carga', 'outro'
 );
 CREATE TYPE tipo_manutencao   AS ENUM ('preventiva', 'corretiva', 'revisao');
 CREATE TYPE status_manutencao AS ENUM ('agendada', 'em_andamento', 'concluida', 'cancelada');
@@ -347,6 +347,7 @@ CREATE TABLE abastecimentos (
 
 CREATE INDEX idx_abastecimentos_viagem   ON abastecimentos (viagem_id);
 CREATE INDEX idx_abastecimentos_veiculo  ON abastecimentos (veiculo_id);
+CREATE INDEX idx_abastecimentos_motorista ON abastecimentos (motorista_id);
 CREATE INDEX idx_abastecimentos_data     ON abastecimentos (registrado_em);
 
 -- ============================================================
@@ -359,7 +360,8 @@ CREATE TABLE ocorrencias (
     veiculo_id      UUID            REFERENCES veiculos (id),
     motorista_id    UUID            NOT NULL REFERENCES motoristas (id),
     tipo            tipo_ocorrencia NOT NULL,
-    descricao       TEXT,
+    motivo          TEXT            NOT NULL,
+    descricao       TEXT            NOT NULL,
     audio_url       TEXT,
     latitude        NUMERIC(10,7),
     longitude       NUMERIC(10,7),

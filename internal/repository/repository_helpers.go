@@ -136,7 +136,7 @@ func mapDatabaseError(err error) error {
 			return domain.ErrConflict
 		case "23503":
 			return domain.ErrConflict
-		case "22P02", "23514":
+		case "22P02", "23514", "P0001":
 			return domain.ErrInvalidInput
 		}
 	}

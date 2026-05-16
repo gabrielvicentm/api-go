@@ -28,12 +28,14 @@ type ViagemDocumentStorage interface {
 }
 
 type R2Storage struct {
-	bucketName      string
-	publicBaseURL   string
-	funcionariosKey string
-	motoristasKey   string
-	viagensKey      string
-	uploader        *manager.Uploader
+	bucketName        string
+	publicBaseURL     string
+	funcionariosKey   string
+	motoristasKey     string
+	viagensKey        string
+	abastecimentosKey string
+	ocorrenciasKey    string
+	uploader          *manager.Uploader
 }
 
 func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
@@ -47,6 +49,8 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 	funcionariosPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_FUNCIONARIOS_PREFIX")), "/")
 	motoristasPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_MOTORISTAS_PREFIX")), "/")
 	viagensPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_VIAGENS_DOCUMENTOS_PREFIX")), "/")
+	abastecimentosPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_ABASTECIMENTOS_PREFIX")), "/")
+	ocorrenciasPrefix := strings.Trim(strings.TrimSpace(os.Getenv("R2_OCORRENCIAS_PREFIX")), "/")
 
 	switch {
 	case accessKeyID == "":
@@ -80,6 +84,12 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 	if viagensPrefix == "" {
 		viagensPrefix = "docs"
 	}
+	if abastecimentosPrefix == "" {
+		abastecimentosPrefix = "abastecimentos"
+	}
+	if ocorrenciasPrefix == "" {
+		ocorrenciasPrefix = "ocorrencias"
+	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(
 		ctx,
@@ -98,12 +108,14 @@ func NewR2StorageFromEnv(ctx context.Context) (*R2Storage, error) {
 	})
 
 	return &R2Storage{
-		bucketName:      bucketName,
-		publicBaseURL:   publicBaseURL,
-		funcionariosKey: funcionariosPrefix,
-		motoristasKey:   motoristasPrefix,
-		viagensKey:      viagensPrefix,
-		uploader:        manager.NewUploader(client),
+		bucketName:        bucketName,
+		publicBaseURL:     publicBaseURL,
+		funcionariosKey:   funcionariosPrefix,
+		motoristasKey:     motoristasPrefix,
+		viagensKey:        viagensPrefix,
+		abastecimentosKey: abastecimentosPrefix,
+		ocorrenciasKey:    ocorrenciasPrefix,
+		uploader:          manager.NewUploader(client),
 	}, nil
 }
 
@@ -113,6 +125,14 @@ func (s *R2Storage) UploadFuncionarioPhoto(ctx context.Context, body io.Reader, 
 
 func (s *R2Storage) UploadMotoristaPhoto(ctx context.Context, body io.Reader, originalFilename, contentType string) (string, error) {
 	return s.uploadPhoto(ctx, s.motoristasKey, body, originalFilename, contentType)
+}
+
+func (s *R2Storage) UploadAbastecimentoPhoto(ctx context.Context, body io.Reader, originalFilename, contentType string) (string, error) {
+	return s.uploadPhoto(ctx, s.abastecimentosKey, body, originalFilename, contentType)
+}
+
+func (s *R2Storage) UploadOcorrenciaPhoto(ctx context.Context, body io.Reader, originalFilename, contentType string) (string, error) {
+	return s.uploadPhoto(ctx, s.ocorrenciasKey, body, originalFilename, contentType)
 }
 
 func (s *R2Storage) uploadPhoto(ctx context.Context, prefix string, body io.Reader, originalFilename, contentType string) (string, error) {
