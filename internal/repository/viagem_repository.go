@@ -1081,6 +1081,72 @@ func (r *ViagemRepository) Update(ctx context.Context, id string, input domain.V
 	return r.GetByID(ctx, id)
 }
 
+func (r *ViagemRepository) Delete(ctx context.Context, id string) error {
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return mapDatabaseError(err)
+	}
+	defer tx.Rollback(ctx)
+
+	const currentQuery = `
+		SELECT veiculo_id::text
+		FROM viagens
+		WHERE id = $1
+		LIMIT 1
+		FOR UPDATE
+	`
+
+	var veiculoID string
+	if err := tx.QueryRow(ctx, currentQuery, strings.TrimSpace(id)).Scan(&veiculoID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return mapDatabaseError(err)
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE abastecimentos SET viagem_id = NULL WHERE viagem_id = $1`, strings.TrimSpace(id)); err != nil {
+		return mapDatabaseError(err)
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE ocorrencias SET viagem_id = NULL WHERE viagem_id = $1`, strings.TrimSpace(id)); err != nil {
+		return mapDatabaseError(err)
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM viagens WHERE id = $1`, strings.TrimSpace(id))
+	if err != nil {
+		return mapDatabaseError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+
+	const syncVehicleStatusQuery = `
+		UPDATE veiculos ve
+		SET status = CASE
+			WHEN EXISTS (
+				SELECT 1
+				FROM viagens v
+				WHERE v.veiculo_id = ve.id
+				  AND v.status IN ('pendente', 'em_andamento', 'parada')
+			) THEN 'em_uso'::status_veiculo
+			WHEN ve.status = 'em_uso' THEN 'disponivel'::status_veiculo
+			ELSE ve.status
+		END,
+		updated_at = NOW()
+		WHERE ve.id = $1
+	`
+
+	if _, err := tx.Exec(ctx, syncVehicleStatusQuery, veiculoID); err != nil {
+		return mapDatabaseError(err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return mapDatabaseError(err)
+	}
+
+	return nil
+}
+
 func (r *ViagemRepository) CreateHistory(ctx context.Context, input domain.ViagemHistoricoCreateInput) error {
 	const query = `
 		INSERT INTO viagem_historico (

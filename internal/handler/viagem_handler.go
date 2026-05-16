@@ -33,6 +33,7 @@ func (h *ViagemHandler) RegisterAdminRoutes(group *gin.RouterGroup) {
 	group.POST("/viagens", h.Create)
 	group.GET("/viagens/:id", h.ShowAdmin)
 	group.PUT("/viagens/:id", h.Update)
+	group.DELETE("/viagens/:id", h.Delete)
 	group.POST("/viagens/:id/finalizar", h.FinalizeAdmin)
 	group.GET("/viagens/:id/historico", h.History)
 	group.GET("/viagens/:id/documentos", h.DocumentsList)
@@ -132,6 +133,15 @@ func (h *ViagemHandler) Update(c *gin.Context) {
 	}
 
 	respondSuccess(c, http.StatusOK, "Viagem atualizada com sucesso", item)
+}
+
+func (h *ViagemHandler) Delete(c *gin.Context) {
+	if err := h.repo.Delete(c.Request.Context(), c.Param("id")); err != nil {
+		respondDomainError(c, err, "Erro interno ao remover viagem")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Viagem removida com sucesso"})
 }
 
 func (h *ViagemHandler) FinalizeAdmin(c *gin.Context) {
