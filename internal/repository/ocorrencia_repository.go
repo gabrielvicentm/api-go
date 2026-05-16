@@ -22,18 +22,32 @@ func (r *OcorrenciaRepository) List(ctx context.Context, filter domain.Ocorrenci
 	const countQuery = `
 		SELECT COUNT(*)
 		FROM ocorrencias o
-		WHERE ($1 = '' OR COALESCE(o.viagem_id::text, '') = $1)
-		AND ($2 = '' OR COALESCE(o.veiculo_id::text, '') = $2)
-		AND ($3 = '' OR o.motorista_id::text = $3)
+		LEFT JOIN motoristas m ON m.id = o.motorista_id
+		LEFT JOIN funcionarios f ON f.id = m.id
+		LEFT JOIN veiculos v ON v.id = o.veiculo_id
+		WHERE ($1 = '' OR o.tipo::text = $1)
+		AND ($2 = '' OR COALESCE(o.viagem_id::text, '') = $2)
+		AND ($3 = '' OR COALESCE(o.veiculo_id::text, '') = $3)
+		AND ($4 = '' OR o.motorista_id::text = $4)
+		AND (
+			$5 = ''
+			OR COALESCE(f.nome, '') ILIKE '%' || $5 || '%'
+			OR COALESCE(v.placa, '') ILIKE '%' || $5 || '%'
+			OR COALESCE(v.modelo, '') ILIKE '%' || $5 || '%'
+			OR COALESCE(o.motivo, '') ILIKE '%' || $5 || '%'
+			OR COALESCE(o.descricao, '') ILIKE '%' || $5 || '%'
+		)
 	`
 
 	var total int64
 	if err := r.db.QueryRow(
 		ctx,
 		countQuery,
+		strings.TrimSpace(filter.Tipo),
 		strings.TrimSpace(filter.ViagemID),
 		strings.TrimSpace(filter.VeiculoID),
 		strings.TrimSpace(filter.MotoristaID),
+		strings.TrimSpace(filter.Search),
 	).Scan(&total); err != nil {
 		return nil, 0, mapDatabaseError(err)
 	}
@@ -67,19 +81,30 @@ func (r *OcorrenciaRepository) List(ctx context.Context, filter domain.Ocorrenci
 			ORDER BY created_at DESC
 			LIMIT 1
 		) om ON TRUE
-		WHERE ($1 = '' OR COALESCE(o.viagem_id::text, '') = $1)
-		AND ($2 = '' OR COALESCE(o.veiculo_id::text, '') = $2)
-		AND ($3 = '' OR o.motorista_id::text = $3)
+		WHERE ($1 = '' OR o.tipo::text = $1)
+		AND ($2 = '' OR COALESCE(o.viagem_id::text, '') = $2)
+		AND ($3 = '' OR COALESCE(o.veiculo_id::text, '') = $3)
+		AND ($4 = '' OR o.motorista_id::text = $4)
+		AND (
+			$5 = ''
+			OR COALESCE(f.nome, '') ILIKE '%' || $5 || '%'
+			OR COALESCE(v.placa, '') ILIKE '%' || $5 || '%'
+			OR COALESCE(v.modelo, '') ILIKE '%' || $5 || '%'
+			OR COALESCE(o.motivo, '') ILIKE '%' || $5 || '%'
+			OR COALESCE(o.descricao, '') ILIKE '%' || $5 || '%'
+		)
 		ORDER BY o.registrado_em DESC
-		LIMIT $4 OFFSET $5
+		LIMIT $6 OFFSET $7
 	`
 
 	rows, err := r.db.Query(
 		ctx,
 		query,
+		strings.TrimSpace(filter.Tipo),
 		strings.TrimSpace(filter.ViagemID),
 		strings.TrimSpace(filter.VeiculoID),
 		strings.TrimSpace(filter.MotoristaID),
+		strings.TrimSpace(filter.Search),
 		filter.Limit,
 		(filter.Page-1)*filter.Limit,
 	)

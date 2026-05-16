@@ -3,6 +3,8 @@ package domain
 import "time"
 
 type OcorrenciaListFilter struct {
+	Search      string
+	Tipo        string
 	ViagemID    string
 	VeiculoID   string
 	MotoristaID string

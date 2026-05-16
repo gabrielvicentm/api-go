@@ -31,6 +31,8 @@ func (h *OcorrenciaHandler) RegisterMotoristaRoutes(group *gin.RouterGroup) {
 func (h *OcorrenciaHandler) ListAdmin(c *gin.Context) {
 	page, limit := parsePagination(c)
 	items, total, err := h.service.List(c.Request.Context(), domain.OcorrenciaListFilter{
+		Search:      strings.TrimSpace(c.Query("search")),
+		Tipo:        strings.TrimSpace(c.Query("tipo")),
 		ViagemID:    strings.TrimSpace(c.Query("viagem_id")),
 		VeiculoID:   strings.TrimSpace(c.Query("veiculo_id")),
 		MotoristaID: strings.TrimSpace(c.Query("motorista_id")),
@@ -110,6 +112,8 @@ func (h *OcorrenciaHandler) ListMotorista(c *gin.Context) {
 
 	page, limit := parsePagination(c)
 	items, total, err := h.service.List(c.Request.Context(), domain.OcorrenciaListFilter{
+		Search:      strings.TrimSpace(c.Query("search")),
+		Tipo:        strings.TrimSpace(c.Query("tipo")),
 		MotoristaID: claims.UserID,
 		Page:        page,
 		Limit:       limit,
