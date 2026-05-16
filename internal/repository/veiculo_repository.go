@@ -451,7 +451,7 @@ func (r *VeiculoRepository) GetHistory(ctx context.Context, id string) ([]domain
 				'Abastecimento - ' || COALESCE(a.fornecedor, 'sem fornecedor'),
 				COALESCE(a.tipo_combustivel::text, ''),
 				a.registrado_em,
-				NULL::text
+				''::text
 			FROM abastecimentos a
 			WHERE a.veiculo_id = $1
 
